@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MinMoe — Face Attendance Terminal</title>
+<script src="face-api.min.js"></script>
+<style>
+:root{
+  --bg:#0b0e13; --panel:#121722; --panel2:#161c29; --line:#232b3a;
+  --text:#e7ecf5; --sub:#8b96ac; --accent:#3f8cff; --accent2:#5ee6c8;
+  --danger:#ff5d6c; --ok:#3fd28b; --warn:#ffb54a;
+  --radius:14px;
+  font-size:16px;
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0; background:
+    radial-gradient(1200px 600px at 15% -10%, #16233a 0%, transparent 60%),
+    radial-gradient(1000px 500px at 100% 0%, #1a1030 0%, transparent 55%),
+    var(--bg);
+  color:var(--text); font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  min-height:100%;
+}
+::-webkit-scrollbar{width:8px;height:8px;}
+::-webkit-scrollbar-thumb{background:#2a3346;border-radius:8px;}
+
+/* ---------- LOGIN GATE ---------- */
+#gate{
+  position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+  background:radial-gradient(800px 500px at 50% 20%, #142036 0%, #090b10 70%);
+  z-index:500;
+}
+.gate-card{
+  width:min(360px,90vw); background:var(--panel); border:1px solid var(--line);
+  border-radius:20px; padding:34px 28px; text-align:center;
+  box-shadow:0 20px 60px rgba(0,0,0,.5);
+  position:relative;
+}
+.brand{display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:6px;}
+.brand .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 14px var(--accent);}
+.brand h1{font-size:1.5rem;margin:0;font-weight:700;letter-spacing:.5px;}
+.brand h1 span{color:var(--accent2);}
+.gate-sub{color:var(--sub);font-size:.85rem;margin:0 0 22px;}
+.pin-dots{display:flex;gap:12px;justify-content:center;margin-bottom:18px;}
+.pin-dots i{width:14px;height:14px;border-radius:50%;border:2px solid #384158;display:block;transition:.15s;}
+.pin-dots i.on{background:var(--accent);border-color:var(--accent);}
+.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;}
+.keypad button{
+  padding:16px 0; font-size:1.15rem; border-radius:12px; border:1px solid var(--line);
+  background:var(--panel2); color:var(--text); cursor:pointer;
+}
+.keypad button:active{background:#1e2636;}
+.keypad button.wide{grid-column:span 1;color:var(--sub);}
+.gate-msg{min-height:20px;color:var(--danger);font-size:.85rem;margin-bottom:6px;}
+.hint{color:var(--sub);font-size:.75rem;margin-top:10px;}
+.gate-cancel{
+  margin-top:12px; width:100%; padding:10px; border-radius:10px;
+  border:1px solid var(--line); background:var(--panel2); color:var(--sub);
+  cursor:pointer; font-size:.85rem;
+}
+.gate-cancel:hover{color:var(--text);}
+
+/* ---------- APP SHELL ---------- */
+#app{display:grid; min-height:100vh; grid-template-columns:220px 1fr;}
+#app.show{display:grid;}
+aside{
+  background:var(--panel); border-right:1px solid var(--line);
+  padding:20px 14px; display:flex; flex-direction:column; gap:4px;
+  position:sticky; top:0; height:100vh;
+}
+.side-brand{display:flex;align-items:center;gap:10px;padding:6px 10px 20px;}
+.side-brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent2);box-shadow:0 0 10px var(--accent2);}
+.side-brand b{font-size:1.05rem;} .side-brand b span{color:var(--accent2);}
+.nav-item{
+  display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;
+  color:var(--sub);cursor:pointer;font-size:.92rem;font-weight:500;border:1px solid transparent;
+}
+.nav-item svg{width:18px;height:18px;flex-shrink:0;}
+.nav-item:hover{background:var(--panel2);color:var(--text);}
+.nav-item.active{background:linear-gradient(90deg,rgba(63,140,255,.18),transparent);color:var(--text);border-color:var(--line);}
+.nav-item.active svg{color:var(--accent);}
+.side-foot{margin-top:auto;padding:10px;border-top:1px solid var(--line);}
+.clock{font-size:1.4rem;font-weight:700;letter-spacing:1px;}
+.clock small{display:block;color:var(--sub);font-weight:400;font-size:.72rem;margin-top:2px;}
+.logout-btn{margin-top:12px;width:100%;padding:9px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);color:var(--sub);cursor:pointer;font-size:.8rem;}
+.logout-btn:hover{color:var(--danger);border-color:var(--danger);}
+
+main{padding:26px 30px 60px; overflow-y:auto; height:100vh;}
+.page{display:none;}
+.page.active{display:block; animation:fadeIn .25s ease;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+
+h2.page-title{margin:0 0 4px;font-size:1.5rem;}
+.page-sub{color:var(--sub);margin:0 0 22px;font-size:.9rem;}
+
+.grid-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px;}
+.stat-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;}
+.stat-card .num{font-size:1.9rem;font-weight:700;}
+.stat-card .lbl{color:var(--sub);font-size:.8rem;margin-top:4px;}
+.stat-card.accent{border-color:rgba(63,140,255,.4);}
+.stat-card.ok{border-color:rgba(63,210,139,.4);}
+.stat-card.warn{border-color:rgba(255,181,74,.4);}
+
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-bottom:20px;}
+.panel h3{margin:0 0 14px;font-size:1rem;}
+
+table{width:100%;border-collapse:collapse;font-size:.86rem;}
+th{text-align:left;color:var(--sub);font-weight:600;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;}
+td{padding:10px 12px;border-bottom:1px solid #1a2130;white-space:nowrap;}
+tr:last-child td{border-bottom:none;}
+.tbl-wrap{overflow-x:auto;}
+.badge{padding:3px 10px;border-radius:20px;font-size:.72rem;font-weight:600;}
+.badge.in{background:rgba(63,210,139,.15);color:var(--ok);}
+.badge.out{background:rgba(255,93,108,.15);color:var(--danger);}
+.avatar{width:34px;height:34px;border-radius:50%;object-fit:cover;background:#233; vertical-align:middle;}
+.avatar-ph{width:34px;height:34px;border-radius:50%;background:var(--panel2);display:inline-flex;align-items:center;justify-content:center;font-size:.75rem;color:var(--sub);}
+
+/* Scanner */
+.scan-wrap{display:grid;grid-template-columns:1fr 340px;gap:20px;}
+@media(max-width:900px){.scan-wrap{grid-template-columns:1fr;}}
+.cam-box{
+  position:relative;background:#000;border-radius:var(--radius);overflow:hidden;
+  border:1px solid var(--line); aspect-ratio:4/3; display:flex; align-items:center; justify-content:center;
+}
+.cam-box video, .cam-box canvas{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;}
+.cam-box canvas{pointer-events:none;}
+.cam-overlay{position:absolute;bottom:14px;left:14px;right:14px;display:flex;justify-content:space-between;align-items:center;z-index:5;}
+.scan-status{background:rgba(10,14,20,.75);backdrop-filter:blur(4px);padding:8px 14px;border-radius:10px;font-size:.85rem;border:1px solid var(--line);}
+.scan-status.detecting{color:var(--warn);}
+.scan-status.success{color:var(--ok);}
+.scan-status.fail{color:var(--danger);}
+.mode-toggle{display:flex;gap:6px;background:rgba(10,14,20,.75);padding:4px;border-radius:10px;border:1px solid var(--line);}
+.mode-toggle button{padding:6px 14px;border:none;border-radius:7px;background:transparent;color:var(--sub);cursor:pointer;font-size:.8rem;font-weight:600;}
+.mode-toggle button.active{background:var(--accent);color:#fff;}
+.cam-placeholder{color:var(--sub);text-align:center;padding:20px;font-size:.9rem;}
+.side-panel{display:flex;flex-direction:column;gap:14px;}
+.verify-tabs{display:flex;gap:8px;margin-bottom:6px;}
+.vtab{flex:1;padding:9px 0;text-align:center;border-radius:9px;border:1px solid var(--line);background:var(--panel2);color:var(--sub);cursor:pointer;font-size:.8rem;font-weight:600;}
+.vtab.active{color:var(--text);border-color:var(--accent);}
+.pin-input{width:100%;padding:14px;text-align:center;font-size:1.4rem;letter-spacing:6px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);margin-bottom:10px;}
+.big-btn{width:100%;padding:13px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-weight:700;cursor:pointer;font-size:.95rem;}
+.big-btn:hover{background:#2f7ae0;}
+.big-btn.secondary{background:var(--panel2);color:var(--text);border:1px solid var(--line);}
+.fp-box{background:var(--panel2);border:1px dashed var(--line);border-radius:10px;padding:24px;text-align:center;cursor:pointer;color:var(--sub);}
+.fp-box:active{background:#1c2436;}
+.last-log{border-top:1px solid var(--line);margin-top:4px;padding-top:12px;}
+.last-log .name{font-weight:700;font-size:1.05rem;}
+.last-log .meta{color:var(--sub);font-size:.8rem;margin-top:2px;}
+
+/* Employee management */
+.emp-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;align-items:center;}
+input[type=text],input[type=number],input[type=date],select{
+  background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  padding:10px 12px;border-radius:9px;font-size:.85rem;
+}
+.emp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px;}
+.emp-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;text-align:center;}
+.emp-card .avatar-lg{width:70px;height:70px;border-radius:50%;object-fit:cover;margin:0 auto 10px;background:var(--panel2);display:block;}
+.emp-card .avatar-ph-lg{width:70px;height:70px;border-radius:50%;background:var(--panel2);margin:0 auto 10px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;color:var(--sub);}
+.emp-card .ename{font-weight:700;font-size:.95rem;}
+.emp-card .eid{color:var(--sub);font-size:.78rem;margin-bottom:2px;}
+.face-tag{display:inline-block;margin-top:8px;font-size:.68rem;padding:2px 8px;border-radius:20px;}
+.face-tag.yes{background:rgba(63,210,139,.15);color:var(--ok);}
+.face-tag.no{background:rgba(255,181,74,.15);color:var(--warn);}
+.emp-actions{display:flex;gap:6px;margin-top:12px;}
+.emp-actions button{flex:1;padding:7px;font-size:.75rem;border-radius:7px;border:1px solid var(--line);background:var(--panel2);color:var(--text);cursor:pointer;}
+.emp-actions button.del:hover{color:var(--danger);border-color:var(--danger);}
+
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;}
+.filters button{padding:8px 16px;border-radius:20px;border:1px solid var(--line);background:var(--panel2);color:var(--sub);cursor:pointer;font-size:.8rem;font-weight:600;}
+.filters button.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+
+/* Modal */
+.modal-bg{position:fixed;inset:0;background:rgba(4,6,10,.7);display:none;align-items:center;justify-content:center;z-index:600;padding:16px;}
+.modal-bg.show{display:flex;}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px;width:min(420px,100%);max-height:90vh;overflow-y:auto;}
+.modal h3{margin-top:0;}
+.field{margin-bottom:12px;}
+.field label{display:block;font-size:.78rem;color:var(--sub);margin-bottom:5px;}
+.field input,.field select{width:100%;}
+.modal-actions{display:flex;gap:10px;margin-top:16px;}
+.modal-actions button{flex:1;padding:11px;border-radius:9px;border:none;cursor:pointer;font-weight:600;}
+.modal-actions .cancel{background:var(--panel2);color:var(--text);border:1px solid var(--line);}
+.modal-actions .confirm{background:var(--accent);color:#fff;}
+.reg-cam{width:100%;aspect-ratio:4/3;background:#000;border-radius:10px;overflow:hidden;position:relative;margin-bottom:10px;}
+.reg-cam video{width:100%;height:100%;object-fit:cover;}
+.toast-host{position:fixed;top:16px;right:16px;z-index:700;display:flex;flex-direction:column;gap:8px;}
+.toast{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);padding:12px 16px;border-radius:10px;font-size:.85rem;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4);animation:fadeIn .2s;}
+.toast.ok{border-left-color:var(--ok);}
+.toast.err{border-left-color:var(--danger);}
+.empty{color:var(--sub);text-align:center;padding:30px;font-size:.85rem;}
+
+/* Mobile Bottom Navigation Alignment Fix */
+@media(max-width:760px){
+  #app.show{display:block;}
+  aside{
+    position:fixed;bottom:0;left:0;right:0;top:auto;height:auto;width:100%;
+    display:flex;flex-direction:row;justify-content:space-between;align-items:center;
+    padding:6px 8px;overflow-x:hidden;border-right:none;border-top:1px solid var(--line);z-index:50;
+  }
+  .side-brand,.side-foot{display:none;}
+  .nav-item{
+    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:4px;font-size:.65rem;padding:8px 4px;white-space:nowrap;text-align:center;
+  }
+  main{padding:16px 14px 90px;height:auto;}
+}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+</head>
+<body>
+
+<!-- ================= LOGIN GATE ================= -->
+<div id="gate">
+  <div class="gate-card">
+    <div class="brand"><span class="dot"></span><h1>Ash Bakes<span> Attendance</span></h1></div>
+    <p class="gate-sub" id="gateSub">Enter Admin PIN to Access</p>
+    <div class="pin-dots" id="pinDots">
+      <i></i><i></i><i></i><i></i>
+    </div>
+    <div class="gate-msg" id="gateMsg"></div>
+    <div class="keypad" id="keypad"></div>
+    <button class="gate-cancel" id="gateCancelBtn">Cancel</button>
+    </div>
+</div>
+
+<!-- ================= APP SHELL ================= -->
+<div id="app" class="show">
+  <aside>
+    <div class="side-brand"><span class="dot"></span><b>Min<span>Moe</span></b></div>
+    <div class="nav-item active" data-page="scanner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/></svg>
+      Live Scanner
+    </div>
+    <div class="nav-item" data-page="dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item" data-page="employees">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17.5" cy="9" r="2.4"/><path d="M15.5 14a5 5 0 0 1 5.4 5"/></svg>
+      Employees
+    </div>
+    <div class="nav-item" data-page="reports">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M7 19V9M12 19V5M17 19v-7"/></svg>
+      Attendance Reports
+    </div>
+    <div class="side-foot">
+      <div class="clock" id="sideClock">--:--<small id="sideDate">Loading…</small></div>
+      <button class="logout-btn" id="logoutBtn">Lock Admin Access</button>
+    </div>
+  </aside>
+
+  <main>
+    <!-- ---------- DASHBOARD ---------- -->
+    <section class="page" id="page-dashboard">
+      <h2 class="page-title">Dashboard</h2>
+      <p class="page-sub">Overview of today's activity on the MinMoe terminal.</p>
+      <div class="grid-cards">
+        <div class="stat-card accent"><div class="num" id="statTotalEmp">0</div><div class="lbl">Registered employees</div></div>
+        <div class="stat-card ok"><div class="num" id="statInToday">0</div><div class="lbl">Checked in today</div></div>
+        <div class="stat-card warn"><div class="num" id="statOutToday">0</div><div class="lbl">Checked out today</div></div>
+        <div class="stat-card"><div class="num" id="statFaceReg">0</div><div class="lbl">Face profiles enrolled</div></div>
+      </div>
+      <div class="panel">
+        <h3>Recent Activity</h3>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Employee</th><th>ID</th><th>Date</th><th>Time</th><th>Status</th></tr></thead>
+          <tbody id="dashRecentBody"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- ---------- LIVE SCANNER ---------- -->
+    <section class="page active" id="page-scanner">
+      <h2 class="page-title">Live Scanner</h2>
+      <p class="page-sub">Verify by face, PIN, or fingerprint to mark attendance.</p>
+      <div class="scan-wrap">
+        <div class="cam-box" id="camBox">
+          <div class="cam-placeholder" id="camPlaceholder">Camera off.<br>Tap "Start Camera" to begin face scanning.</div>
+          <video id="video" autoplay muted playsinline style="display:none;"></video>
+          <canvas id="overlay"></canvas>
+          <div class="cam-overlay">
+            <div class="scan-status" id="scanStatus">Idle</div>
+            <div class="mode-toggle">
+              <button id="modeIn">IN</button>
+              <button id="modeOut">OUT</button>
+              <button id="modeAuto">AUTO</button>
+            </div>
+          </div>
+        </div>
+        <div class="side-panel">
+          <div class="panel" style="margin-bottom:0;">
+            <button class="big-btn" id="camToggleBtn">Start Camera</button>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;">
+              <span class="scan-status" id="modelStatus" style="background:var(--panel2);">Checking face models…</span>
+              <button class="big-btn secondary" id="retryModelsBtn" style="display:none;width:auto;padding:8px 14px;font-size:.78rem;">Retry Face Models</button>
+            </div>
+          </div>
+          <div class="panel" style="margin-bottom:0;">
+            <div class="verify-tabs">
+              <div class="vtab active" data-v="pin">PIN</div>
+              <div class="vtab" data-v="fp">Fingerprint</div>
+            </div>
+            <div id="vpin">
+              <input type="text" inputmode="numeric" maxlength="6" class="pin-input" id="attPin" placeholder="••••">
+              <button class="big-btn secondary" id="pinVerifyBtn">Verify PIN</button>
+            </div>
+            <div id="vfp" style="display:none;">
+              <div class="fp-box" id="fpBox">👆<br>Tap to simulate fingerprint scan</div>
+            </div>
+          </div>
+          <div class="panel" style="margin-bottom:0;" id="lastLogPanel">
+            <h3>Last Verified</h3>
+            <div class="empty" id="lastLogEmpty">No activity yet.</div>
+            <div class="last-log" id="lastLogContent" style="display:none;">
+              <div class="name" id="llName">—</div>
+              <div class="meta" id="llMeta">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- EMPLOYEES ---------- -->
+    <section class="page" id="page-employees">
+      <h2 class="page-title">Employee Management</h2>
+      <p class="page-sub">Add employees, enroll face data, and manage access.</p>
+      <div class="emp-toolbar">
+        <input type="text" id="empSearch" placeholder="Search employees…">
+        <button class="big-btn" style="width:auto;padding:10px 18px;" id="addEmpBtn">+ Add Employee</button>
+      </div>
+      <div class="emp-grid" id="empGrid"></div>
+    </section>
+
+    <!-- ---------- REPORTS ---------- -->
+    <section class="page" id="page-reports">
+      <h2 class="page-title">Attendance Reports</h2>
+      <p class="page-sub">Filter and search attendance logs.</p>
+      <div class="filters">
+        <button class="active" data-f="today">Today</button>
+        <button data-f="yesterday">Yesterday</button>
+        <button data-f="month">This Month</button>
+        <button data-f="custom">Choose Date</button>
+        <input type="date" id="customDate" style="display:none;">
+      </div>
+      <div class="emp-toolbar">
+        <input type="text" id="reportSearch" placeholder="Search by name or ID…">
+      </div>
+      <div class="panel">
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>ID</th><th>Name</th><th>Date</th><th>Entrance</th><th>Exit</th><th>Status</th></tr></thead>
+          
+        <tbody id="reportBody"></tbody>
+        </table></div>
+        <div class="empty" id="reportEmpty" style="display:none;">No records match this filter.</div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ---------- Add / Enroll Employee Modal ---------- -->
+<div class="modal-bg" id="empModalBg">
+  <div class="modal">
+    <h3 id="empModalTitle">Add Employee</h3>
+    <div class="field"><label>Employee ID</label><input type="text" id="fEmpId" placeholder="e.g. EMP-004"></div>
+    <div class="field"><label>Full Name</label><input type="text" id="fEmpName" placeholder="e.g. Ahmed Al-Farsi"></div>
+    <div class="field"><label>Department</label><input type="text" id="fEmpDept" placeholder="e.g. Kitchen / Front Desk"></div>
+    <div class="field"><label>Access PIN (4–6 digits)</label><input type="text" inputmode="numeric" id="fEmpPin" placeholder="e.g. 5566"></div>
+    <div class="field">
+      <label>Face Enrollment</label>
+      <div class="reg-cam" id="regCamBox">
+        <video id="regVideo" autoplay muted playsinline></video>
+      </div>
+      <button class="big-btn secondary" id="regCamBtn" style="margin-bottom:6px;">Start Camera</button>
+      <button class="big-btn" id="captureFaceBtn" disabled>Capture Face Data</button>
+      <div class="gate-msg" id="regFaceStatus" style="color:var(--sub);"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="cancel" id="empCancelBtn">Cancel</button>
+      <button class="confirm" id="empSaveBtn">Save Employee</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-host" id="toastHost"></div>
+
+<script>
+/* ============================================================
+   MinMoe Face Attendance Terminal — full client-side simulation
+   ============================================================ */
+const LS_EMP = 'minmoe_employees';
+const LS_LOG = 'minmoe_logs';
+const LS_PIN = 'minmoe_admin_pin';
+const LS_MODE = 'minmoe_scan_mode';
+const FACE_MATCH_THRESHOLD = 0.55;
+
+let employees = JSON.parse(localStorage.getItem(LS_EMP) || '[]');
+let logs = JSON.parse(localStorage.getItem(LS_LOG) || '[]');
+let adminPin = localStorage.getItem(LS_PIN) || '1234';
+let isAdminUnlocked = false;
+let pendingPageTarget = null;
+let currentPage = 'scanner';
+
+/* Global Filter States */
+let activeFilter = 'today';
+
+function saveEmployees(){ localStorage.setItem(LS_EMP, JSON.stringify(employees)); }
+function saveLogs(){ localStorage.setItem(LS_LOG, JSON.stringify(logs)); }
+
+function toast(msg, type='info'){
+  const host = document.getElementById('toastHost');
+  const t = document.createElement('div');
+  t.className = 'toast ' + (type==='ok'?'ok':type==='err'?'err':'');
+  t.textContent = msg;
+  host.appendChild(t);
+  setTimeout(()=>t.remove(), 3200);
+}
+
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function initials(name){ return name.split(' ').map(p=>p[0]).slice(0,2).join('').toUpperCase(); }
+
+/* ---------------- REPORTS LOGIC & HOISTING FIX ---------------- */
+function inFilterRange(dateStr){
+  const d = new Date(dateStr+'T00:00:00');
+  const now = new Date();
+  if(activeFilter==='today') return dateStr === todayStr();
+  if(activeFilter==='yesterday'){
+    const y = new Date(); y.setDate(y.getDate()-1);
+    return dateStr === y.toISOString().slice(0,10);
+  }
+  if(activeFilter==='month') return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth();
+  if(activeFilter==='custom'){
+    const cv = document.getElementById('customDate').value;
+    return cv ? dateStr === cv : true;
+  }
+  return true;
+}
+
+function renderReports(){
+  const q = (document.getElementById('reportSearch').value||'').toLowerCase();
+  const filtered = logs.filter(l => inFilterRange(l.date) &&
+    (l.name.toLowerCase().includes(q) || l.empId.toLowerCase().includes(q)));
+  const body = document.getElementById('reportBody');
+  const emptyEl = document.getElementById('reportEmpty');
+  if(!filtered.length){
+    body.innerHTML=''; emptyEl.style.display='block'; return;
+  }
+  emptyEl.style.display='none';
+  const sorted = [...filtered].sort((a,b)=> (b.date+(b.entrance||'')).localeCompare(a.date+(a.entrance||'')));
+  body.innerHTML = sorted.map(r=>{
+    const status = r.exit ? (r.entrance? 'Completed':'Exit only') : 'In progress';
+    return `<tr>
+      <td>${escapeHtml(r.empId)}</td><td>${escapeHtml(r.name)}</td><td>${r.date}</td>
+      <td>${r.entrance || '—'}</td><td>${r.exit || '—'}</td>
+      <td><span class="badge ${r.exit && !r.entrance ? 'out': r.exit ? 'in':'in'}">${status}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ---------------- LOGIN GATE ---------------- */
+let pinBuffer = '';
+const pinDots = document.getElementById('pinDots').children;
+const gateMsg = document.getElementById('gateMsg');
+const keypad = document.getElementById('keypad');
+const keys = ['1','2','3','4','5','6','7','8','9','⌫','0','OK'];
+keys.forEach(k=>{
+  const b = document.createElement('button');
+  b.textContent = k;
+  if(k==='⌫' || k==='OK') b.classList.add('wide');
+  b.addEventListener('click', ()=>handleKey(k));
+  keypad.appendChild(b);
+});
+function handleKey(k){
+  if(k==='⌫'){ pinBuffer = pinBuffer.slice(0,-1); }
+  else if(k==='OK'){ tryUnlock(); return; }
+  else if(pinBuffer.length < 6){ pinBuffer += k; }
+  renderDots();
+}
+function renderDots(){
+  for(let i=0;i<pinDots.length;i++){
+    pinDots[i].classList.toggle('on', i < pinBuffer.length);
+  }
+}
+function tryUnlock(){
+  if(pinBuffer === adminPin){
+    isAdminUnlocked = true;
+    document.getElementById('gate').style.display='none';
+    pinBuffer=''; renderDots();
+    if(pendingPageTarget){
+      navigateToPage(pendingPageTarget);
+      pendingPageTarget = null;
+    }
+  } else {
+    gateMsg.textContent = 'Incorrect PIN. Try again.';
+    setTimeout(()=>gateMsg.textContent='', 1800);
+    pinBuffer=''; renderDots();
+  }
+}
+function openGate(targetPage){
+  pendingPageTarget = targetPage;
+  pinBuffer = '';
+  renderDots();
+  gateMsg.textContent = '';
+  const pageLabel = targetPage.charAt(0).toUpperCase() + targetPage.slice(1);
+  document.getElementById('gateSub').textContent = `Enter Admin PIN to access ${pageLabel}`;
+  document.getElementById('gate').style.display = 'flex';
+}
+function closeGate(){
+  document.getElementById('gate').style.display = 'none';
+  pendingPageTarget = null;
+  pinBuffer = '';
+  renderDots();
+}
+
+document.getElementById('gateCancelBtn').addEventListener('click', closeGate);
+
+document.addEventListener('keydown', e=>{
+  if(document.getElementById('gate').style.display !== 'flex') return;
+  if(/^[0-9]$/.test(e.key)) handleKey(e.key);
+  if(e.key==='Backspace') handleKey('⌫');
+  if(e.key==='Enter') handleKey('OK');
+  if(e.key==='Escape') closeGate();
+});
+
+document.getElementById('logoutBtn').addEventListener('click', ()=>{
+  isAdminUnlocked = false;
+  toast('Admin access locked', 'info');
+  if(currentPage !== 'scanner'){
+    navigateToPage('scanner');
+  }
+});
+
+/* ---------------- CLOCK ---------------- */
+function tickClock(){
+  const now = new Date();
+  const time = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  const date = now.toLocaleDateString([], {weekday:'short', year:'numeric', month:'short', day:'numeric'});
+  document.getElementById('sideClock').innerHTML = time + '<small>'+date+'</small>';
+}
+setInterval(tickClock, 1000); tickClock();
+
+/* ---------------- NAV ---------------- */
+function navigateToPage(pageName){
+  currentPage = pageName;
+  document.querySelectorAll('.nav-item').forEach(i=>{
+    i.classList.toggle('active', i.dataset.page === pageName);
+  });
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+pageName).classList.add('active');
+  
+  if(pageName==='dashboard') renderDashboard();
+  if(pageName==='employees') renderEmployees();
+  if(pageName==='reports') renderReports();
+  if(pageName!=='scanner') stopScannerCamera();
+}
+
+document.querySelectorAll('.nav-item').forEach(item=>{
+  item.addEventListener('click', ()=>{
+    const target = item.dataset.page;
+    if(target !== 'scanner' && !isAdminUnlocked){
+      openGate(target);
+      return;
+    }
+    navigateToPage(target);
+  });
+});
+
+/* ---------------- FACE API LOADERS ---------------- */
+let faceApiReady = false;
+let faceApiLoading = false;
+const MODEL_MIRRORS = [
+  'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model',
+  'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights',
+  'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights'
+];
+
+async function loadModelsFromUri(url){
+  await Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri(url),
+    faceapi.nets.faceLandmark68Net.loadFromUri(url),
+    faceapi.nets.faceRecognitionNet.loadFromUri(url)
+  ]);
+}
+
+async function loadFaceModels(silent){
+  if(faceApiReady) return true;
+  if(faceApiLoading) return false;
+  if(typeof faceapi === 'undefined'){
+    console.error('face-api.js library missing.');
+    if(!silent) toast('face-api.js library missing. Please check face-api.min.js file.', 'err');
+    setScanModelStatus('Library unavailable', 'fail');
+    return false;
+  }
+  faceApiLoading = true;
+  setScanModelStatus('Loading face models…', 'detecting');
+
+  let lastErr = null;
+  for(const mirror of MODEL_MIRRORS){
+    const MAX_ATTEMPTS = 2;
+    for(let attempt=1; attempt<=MAX_ATTEMPTS; attempt++){
+      try{
+        await loadModelsFromUri(mirror);
+        faceApiReady = true;
+        faceApiLoading = false;
+        setScanModelStatus('Face models ready', 'success');
+        if(!silent) toast('Face recognition models loaded successfully.', 'ok');
+        return true;
+      }catch(e){
+        lastErr = e;
+        console.warn(`Model load failed (mirror: ${mirror}, attempt: ${attempt})`, e);
+        await new Promise(r=>setTimeout(r, 400 * attempt));
+      }
+    }
+  }
+
+  faceApiLoading = false;
+  faceApiReady = false;
+  console.error('All face-api model mirrors failed to load.', lastErr);
+  setScanModelStatus('Face model unavailable — tap Retry', 'fail');
+  if(!silent) toast('Face-recognition models could not load. Tap "Retry Face Models" to try again.', 'err');
+  return false;
+}
+
+function setScanModelStatus(text, cls){
+  const el = document.getElementById('modelStatus');
+  if(!el) return;
+  el.textContent = text;
+  el.className = 'scan-status ' + (cls||'');
+  const retryBtn = document.getElementById('retryModelsBtn');
+  if(retryBtn) retryBtn.style.display = cls==='fail' ? 'inline-block' : 'none';
+}
+
+async function initAppOnce(){
+  if(window.__minmoeInit) return;
+  window.__minmoeInit = true;
+  initScanMode();
+  renderDashboard();
+  renderEmployees();
+  renderReports();
+  loadFaceModels(true);
+}
+
+/* ---------------- DASHBOARD ---------------- */
+function renderDashboard(){
+  document.getElementById('statTotalEmp').textContent = employees.length;
+  const t = todayStr();
+  const todays = logs.filter(l=>l.date===t);
+  document.getElementById('statInToday').textContent = todays.filter(l=>l.entrance).length;
+  document.getElementById('statOutToday').textContent = todays.filter(l=>l.exit).length;
+  document.getElementById('statFaceReg').textContent = employees.filter(e=>e.descriptor).length;
+
+  const recent = [...logs].sort((a,b)=> (b.date+ (b.exit||b.entrance||'')).localeCompare(a.date+(a.exit||a.entrance||''))).slice(0,8);
+  const body = document.getElementById('dashRecentBody');
+  body.innerHTML = recent.length ? recent.map(r=>{
+    const status = r.exit ? 'OUT' : 'IN';
+    const time = r.exit || r.entrance;
+    return `<tr><td>${escapeHtml(r.name)}</td><td>${escapeHtml(r.empId)}</td><td>${r.date}</td><td>${time}</td>
+      <td><span class="badge ${status==='IN'?'in':'out'}">${status}</span></td></tr>`;
+  }).join('') : `<tr><td colspan="5" class="empty">No attendance activity yet.</td></tr>`;
+}
+
+/* ---------------- EMPLOYEES ---------------- */
+function renderEmployees(){
+  const q = (document.getElementById('empSearch').value || '').toLowerCase();
+  const grid = document.getElementById('empGrid');
+  const filtered = employees.filter(e => e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q));
+  grid.innerHTML = filtered.length ? filtered.map(e=>`
+    <div class="emp-card">
+      ${e.photo ? `<img class="avatar-lg" src="${e.photo}">` : `<div class="avatar-ph-lg">${initials(e.name)}</div>`}
+      <div class="ename">${escapeHtml(e.name)}</div>
+      <div class="eid">${escapeHtml(e.id)} · ${escapeHtml(e.dept||'—')}</div>
+      <span class="face-tag ${e.descriptor?'yes':'no'}">${e.descriptor?'Face enrolled':'No face data'}</span>
+      <div class="emp-actions">
+        <button data-edit="${e.id}">Edit</button>
+        <button class="del" data-del="${e.id}">Delete</button>
+      </div>
+    </div>
+  `).join('') : `<div class="empty">No employees found. Click "Add Employee" to register one.</div>`;
+
+  grid.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', ()=>{
+    if(confirm('Delete this employee and their face data?')){
+      employees = employees.filter(e=>e.id !== b.dataset.del);
+      saveEmployees(); renderEmployees(); renderDashboard();
+      toast('Employee deleted', 'ok');
+    }
+  }));
+  grid.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click', ()=> openEmpModal(b.dataset.edit)));
+}
+document.getElementById('empSearch').addEventListener('input', renderEmployees);
+
+/* ---- Add/Edit Employee Modal ---- */
+const empModalBg = document.getElementById('empModalBg');
+let editingId = null;
+let regStream = null;
+let capturedDescriptor = null;
+let capturedPhoto = null;
+
+document.getElementById('addEmpBtn').addEventListener('click', ()=> openEmpModal(null));
+document.getElementById('empCancelBtn').addEventListener('click', closeEmpModal);
+
+function openEmpModal(id){
+  editingId = id;
+  capturedDescriptor = null; capturedPhoto = null;
+  document.getElementById('regFaceStatus').textContent = '';
+  document.getElementById('captureFaceBtn').disabled = true;
+  if(id){
+    const e = employees.find(x=>x.id===id);
+    document.getElementById('empModalTitle').textContent = 'Edit Employee';
+    document.getElementById('fEmpId').value = e.id;
+    document.getElementById('fEmpId').disabled = true;
+    document.getElementById('fEmpName').value = e.name;
+    document.getElementById('fEmpDept').value = e.dept || '';
+    document.getElementById('fEmpPin').value = e.pin || '';
+    capturedDescriptor = e.descriptor || null;
+    capturedPhoto = e.photo || null;
+    if(e.descriptor) document.getElementById('regFaceStatus').textContent = 'Existing face data on file. Capture again to replace.';
+  } else {
+    document.getElementById('empModalTitle').textContent = 'Add Employee';
+    document.getElementById('fEmpId').disabled = false;
+    document.getElementById('fEmpId').value = '';
+    document.getElementById('fEmpName').value = '';
+    document.getElementById('fEmpDept').value = '';
+    document.getElementById('fEmpPin').value = '';
+  }
+  empModalBg.classList.add('show');
+}
+function closeEmpModal(){
+  empModalBg.classList.remove('show');
+  stopRegCamera();
+}
+
+document.getElementById('regCamBtn').addEventListener('click', async ()=>{
+  try{
+    regStream = await navigator.mediaDevices.getUserMedia({video:{width:320,height:240}});
+    document.getElementById('regVideo').srcObject = regStream;
+    document.getElementById('captureFaceBtn').disabled = false;
+    document.getElementById('regFaceStatus').textContent = 'Camera active. Center your face and capture.';
+  }catch(e){
+    toast('Camera access denied or unavailable.', 'err');
+  }
+});
+function stopRegCamera(){
+  if(regStream){ regStream.getTracks().forEach(t=>t.stop()); regStream=null; }
+}
+document.getElementById('captureFaceBtn').addEventListener('click', async ()=>{
+  const video = document.getElementById('regVideo');
+  const statusEl = document.getElementById('regFaceStatus');
+  if(!faceApiReady){
+    capturedPhoto = snapshotToDataUrl(video);
+    statusEl.textContent = 'Face model unavailable — saved photo only (no recognition match).';
+    return;
+  }
+  statusEl.textContent = 'Detecting face…';
+  const det = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+    .withFaceLandmarks().withFaceDescriptor();
+  if(!det){
+    statusEl.textContent = 'No face detected. Ensure good lighting and try again.';
+    return;
+  }
+  capturedDescriptor = Array.from(det.descriptor);
+  capturedPhoto = snapshotToDataUrl(video);
+  statusEl.textContent = 'Face captured successfully ✓';
+});
+function snapshotToDataUrl(video){
+  const c = document.createElement('canvas');
+  c.width = 160; c.height = 160;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(video, 0,0,c.width,c.height);
+  return c.toDataURL('image/jpeg', 0.7);
+}
+
+document.getElementById('empSaveBtn').addEventListener('click', ()=>{
+  const id = document.getElementById('fEmpId').value.trim();
+  const name = document.getElementById('fEmpName').value.trim();
+  const dept = document.getElementById('fEmpDept').value.trim();
+  const pin = document.getElementById('fEmpPin').value.trim();
+  if(!id || !name){ toast('Employee ID and Name are required.', 'err'); return; }
+  if(pin && !/^\d{4,6}$/.test(pin)){ toast('PIN must be 4–6 digits.', 'err'); return; }
+  if(!editingId && employees.some(e=>e.id===id)){ toast('Employee ID already exists.', 'err'); return; }
+
+  const record = {
+    id, name, dept, pin,
+    descriptor: capturedDescriptor,
+    photo: capturedPhoto
+  };
+  if(editingId){
+    const idx = employees.findIndex(e=>e.id===editingId);
+    employees[idx] = {...employees[idx], ...record};
+  } else {
+    employees.push(record);
+  }
+  saveEmployees();
+  closeEmpModal();
+  renderEmployees();
+  renderDashboard();
+  toast('Employee saved', 'ok');
+});
+
+/* ---------------- LIVE SCANNER ---------------- */
+let scanStream = null;
+let isProcessingFrame = false;
+let animationFrameId = null;
+let scanMode = localStorage.getItem(LS_MODE) || 'IN'; 
+let verifyTab = 'pin';
+
+function initScanMode(){
+  setScanMode(scanMode);
+}
+
+document.getElementById('modeIn').addEventListener('click', ()=>setScanMode('IN'));
+document.getElementById('modeOut').addEventListener('click', ()=>setScanMode('OUT'));
+document.getElementById('modeAuto').addEventListener('click', ()=>setScanMode('AUTO'));
+
+function setScanMode(m){
+  scanMode = m;
+  localStorage.setItem(LS_MODE, m);
+  ['modeIn','modeOut','modeAuto'].forEach(id=>document.getElementById(id).classList.remove('active'));
+  document.getElementById('mode'+(m==='IN'?'In':m==='OUT'?'Out':'Auto')).classList.add('active');
+}
+
+document.querySelectorAll('.vtab').forEach(t=>t.addEventListener('click', ()=>{
+  document.querySelectorAll('.vtab').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  verifyTab = t.dataset.v;
+  document.getElementById('vpin').style.display = verifyTab==='pin' ? 'block':'none';
+  document.getElementById('vfp').style.display = verifyTab==='fp' ? 'block':'none';
+}));
+
+document.getElementById('retryModelsBtn').addEventListener('click', async ()=>{
+  const ok = await loadFaceModels(false);
+  if(ok && scanStream && !animationFrameId){
+    setScanStatus('Scanning…', 'detecting');
+    startScanLoop();
+  }
+});
+
+document.getElementById('camToggleBtn').addEventListener('click', async ()=>{
+  if(scanStream){ stopScannerCamera(); return; }
+  try{
+    scanStream = await navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:"user"}});
+    const video = document.getElementById('video');
+    video.srcObject = scanStream;
+    video.style.display = 'block';
+    document.getElementById('camPlaceholder').style.display = 'none';
+    document.getElementById('camToggleBtn').textContent = 'Stop Camera';
+
+    if(!faceApiReady && !faceApiLoading){
+      await loadFaceModels(true);
+    }
+    if(faceApiReady){
+      setScanStatus('Scanning…', 'detecting');
+      startScanLoop();
+    } else {
+      setScanStatus('Face model unavailable — use PIN/Fingerprint or tap Retry', 'fail');
+    }
+  }catch(e){
+    toast('Camera access denied or unavailable.', 'err');
+  }
+});
+
+function startScanLoop(){
+  if(animationFrameId) cancelAnimationFrame(animationFrameId);
+  const loop = async () => {
+    if(!scanStream) return;
+    if(!isProcessingFrame){
+      await runFaceScan();
+    }
+    animationFrameId = requestAnimationFrame(loop);
+  };
+  animationFrameId = requestAnimationFrame(loop);
+}
+
+function stopScannerCamera(){
+  if(animationFrameId){ cancelAnimationFrame(animationFrameId); animationFrameId=null; }
+  if(scanStream){ scanStream.getTracks().forEach(t=>t.stop()); scanStream=null; }
+  const video = document.getElementById('video');
+  video.style.display='none'; video.srcObject=null;
+  document.getElementById('camPlaceholder').style.display='block';
+  document.getElementById('camToggleBtn').textContent = 'Start Camera';
+  setScanStatus('Idle','');
+  const overlay = document.getElementById('overlay');
+  const ctx = overlay.getContext('2d');
+  ctx.clearRect(0,0,overlay.width||640,overlay.height||480);
+  isProcessingFrame = false;
+}
+
+function setScanStatus(text, cls){
+  const el = document.getElementById('scanStatus');
+  el.textContent = text;
+  el.className = 'scan-status ' + cls;
+}
+
+let lastMatchedId = null;
+let lastMatchTime = 0;
+
+async function runFaceScan(){
+  isProcessingFrame = true;
+  const video = document.getElementById('video');
+  const overlay = document.getElementById('overlay');
+  
+  if(!video.videoWidth || !video.videoHeight){
+    isProcessingFrame = false;
+    return;
+  }
+
+  overlay.width = video.videoWidth; 
+  overlay.height = video.videoHeight;
+  const ctx = overlay.getContext('2d');
+  ctx.clearRect(0,0,overlay.width, overlay.height);
+
+  const enrolled = employees.filter(e=>e.descriptor);
+  if(!enrolled.length){ 
+    setScanStatus('No enrolled faces — add employees first', 'fail'); 
+    isProcessingFrame = false;
+    return; 
+  }
+
+  let det;
+  try{
+    det = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
+      .withFaceLandmarks().withFaceDescriptor();
+  }catch(e){
+    console.error('Face detection error during scan', e);
+    setScanStatus('Detection error — tap Retry Face Models', 'fail');
+    faceApiReady = false;
+    document.getElementById('retryModelsBtn').style.display = 'inline-block';
+    isProcessingFrame = false;
+    return;
+  }
+
+  if(!det){ 
+    setScanStatus('Scanning… no face detected', 'detecting'); 
+    isProcessingFrame = false;
+    return; 
+  }
+
+  const box = det.detection.box;
+  ctx.strokeStyle = '#3f8cff'; ctx.lineWidth = 3;
+  ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+  const labeled = enrolled.map(e=> new faceapi.LabeledFaceDescriptors(e.id, [new Float32Array(e.descriptor)]));
+  const matcher = new faceapi.FaceMatcher(labeled, FACE_MATCH_THRESHOLD);
+  const best = matcher.findBestMatch(det.descriptor);
+
+  if(best.label === 'unknown'){
+    setScanStatus('Face not recognized', 'fail');
+    isProcessingFrame = false;
+    return;
+  }
+
+  const now = Date.now();
+  if(lastMatchedId === best.label && now - lastMatchTime < 8000){
+    ctx.strokeStyle = '#3fd28b';
+    ctx.strokeRect(box.x, box.y, box.width, box.height);
+    setScanStatus('Already marked: ' + (employees.find(e=>e.id===best.label)?.name || ''), 'success');
+    isProcessingFrame = false;
+    return;
+  }
+
+  lastMatchedId = best.label; 
+  lastMatchTime = now;
+
+  const emp = employees.find(e=>e.id===best.label);
+  ctx.strokeStyle = '#3fd28b';
+  ctx.strokeRect(box.x, box.y, box.width, box.height);
+  setScanStatus('Recognized: ' + emp.name, 'success');
+  logAttendance(emp, 'Face Recognition');
+  
+  isProcessingFrame = false;
+}
+
+/* PIN verification */
+document.getElementById('pinVerifyBtn').addEventListener('click', ()=>{
+  const val = document.getElementById('attPin').value.trim();
+  const emp = employees.find(e=> e.pin && e.pin === val);
+  if(!emp){ toast('PIN not recognized.', 'err'); return; }
+  document.getElementById('attPin').value='';
+  logAttendance(emp, 'PIN');
+});
+document.getElementById('attPin').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('pinVerifyBtn').click(); });
+
+/* Fingerprint simulation */
+document.getElementById('fpBox').addEventListener('click', ()=>{
+  if(!employees.length){ toast('No employees registered yet.', 'err'); return; }
+  document.getElementById('fpBox').textContent = 'Scanning fingerprint…';
+  setTimeout(()=>{
+    const emp = employees[Math.floor(Math.random()*employees.length)];
+    document.getElementById('fpBox').innerHTML = '👆<br>Tap to simulate fingerprint scan';
+    logAttendance(emp, 'Fingerprint (simulated)');
+  }, 1100);
+});
+
+/* ---------------- ATTENDANCE LOGIC ---------------- */
+function logAttendance(emp, method){
+  const date = todayStr();
+  const time = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  let rec = logs.find(l=> l.empId===emp.id && l.date===date && !l.exit);
+  let mode = scanMode;
+
+  if(mode === 'AUTO'){
+    mode = rec ? 'OUT' : 'IN';
+  }
+
+  if(mode === 'IN'){
+    if(rec){
+      toast(emp.name+' already checked in today.', 'err');
+      return;
+    }
+    rec = { empId: emp.id, name: emp.name, date, entrance: time, exit: null, method };
+    logs.push(rec);
+  } else {
+    const openRec = logs.find(l=> l.empId===emp.id && l.date===date && l.entrance && !l.exit);
+    if(openRec){
+      openRec.exit = time;
+    } else {
+      logs.push({ empId: emp.id, name: emp.name, date, entrance: null, exit: time, method });
+    }
+  }
+  saveLogs();
+  showLastLog(emp, mode, time);
+  renderDashboard();
+  renderReports();
+  toast(`${emp.name} marked ${mode} via ${method}`, 'ok');
+}
+function showLastLog(emp, mode, time){
+  document.getElementById('lastLogEmpty').style.display='none';
+  const c = document.getElementById('lastLogContent');
+  c.style.display='block';
+  document.getElementById('llName').textContent = emp.name + ' (' + emp.id + ')';
+  document.getElementById('llMeta').textContent = mode + ' · ' + time + ' · ' + todayStr();
+}
+
+/* ---------------- REPORTS EVENT LISTENERS ---------------- */
+document.querySelectorAll('.filters button').forEach(b=>b.addEventListener('click', ()=>{
+  document.querySelectorAll('.filters button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  activeFilter = b.dataset.f;
+  document.getElementById('customDate').style.display = activeFilter==='custom' ? 'inline-block' : 'none';
+  renderReports();
+}));
+document.getElementById('customDate').addEventListener('change', renderReports);
+document.getElementById('reportSearch').addEventListener('input', renderReports);
+
+/* ---------------- STARTUP INITIALIZATION ---------------- */
+initAppOnce();
+</script>
+</body>
+</html>
