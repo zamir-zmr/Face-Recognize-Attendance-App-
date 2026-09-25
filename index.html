@@ -315,8 +315,8 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
 .modal-bg { position: fixed; inset: 0; background: rgba(3, 7, 18, 0.85); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 600; padding: 16px; }
 .modal-bg.show { display: flex; }
 .modal { background: var(--panel2); border: 1px solid var(--line); border-radius: 18px; padding: 0; width: min(420px, 100%); max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0,0,0,0.8); }
-.modal-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: 
-.modal-head h3 { margin: 0; font-weight: 700; position: relative; padding-left: 12px; }
+.modal-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel2); z-index: 2; }
+.modal-head h3 { margin: 0; font-size: 1.05rem; font-weight: 700; position: relative; padding-left: 12px; }
 .modal-head h3::before { content: ''; position: absolute; left: 0; top: 2px; bottom: 2px; width: 3px; border-radius: 2px; background: var(--accent-grad); }
 .modal-head p { margin: 4px 0 0 12px; color: var(--sub); font-size: 0.75rem; }
 .modal-body { padding: 16px 20px; }
@@ -681,15 +681,6 @@ setInterval(tickClock, 1000); tickClock();
 function navigateToPage(pageName){
   currentPage = pageName;
   document.querySelectorAll('.nav-item').forEach(i=> i.classList.toggle('active', i.dataset.page === pageName));
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.getElementById('page-'+pageName).classList.add('active');
-  if(pageName==='dashboard') renderDashboard();
-  if(pageName==='employees') renderEmployees();
-  if(pageName==='reports') renderReports();
-  if(pageName!=='scanner') stopScannerCamera();
-}
-
-document.querySelectorAll('.nav-item').forEach(i=> i.classList.toggle('active', i.dataset.page === pageName));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+pageName).classList.add('active');
   if(pageName==='dashboard') renderDashboard();
@@ -1119,8 +1110,7 @@ async function startFpSensor(){
   fpBusy = true;
   fpBox.classList.remove('success','fail');
   fpBox.classList.add('waiting');
-  
-   fpHint.textContent = 'Waiting for fingerprint sensor…';
+  fpHint.textContent = 'Waiting for fingerprint sensor…';
   fpSub.textContent = 'Follow your phone\u2019s lock-screen fingerprint prompt now.';
   fpRetryBtn.style.display = 'none';
 
@@ -1312,3 +1302,4 @@ loadFaceModels(true);
 </script>
 </body>
 </html>
+    
