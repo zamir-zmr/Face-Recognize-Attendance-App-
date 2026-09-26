@@ -172,8 +172,9 @@ tr:last-child td { border-bottom: none; }
 
 .cam-box {
   position: relative; background: #000; border-radius: var(--radius); overflow: hidden;
-  border: 1px solid var(--line); aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center;
   box-shadow: 0 12px 32px rgba(0,0,0,0.6);
+  transition: background 0.3s ease;
 }
 .cam-box video, .cam-box canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
 .cam-box canvas { pointer-events: none; z-index: 2; }
@@ -218,9 +219,17 @@ tr:last-child td { border-bottom: none; }
 
 /* Professional Face Guide Frame */
 .cam-guide {
-  position: absolute; width: 210px; height: 270px;
-  border: 2px dashed rgba(56, 189, 248, 0.6); border-radius: 50%;
-  pointer-events: none; z-index: 3; transition: all 0.3s ease;
+  position: absolute; 
+  top: 25px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 190px; 
+  height: 240px;
+  border: 2px dashed rgba(56, 189, 248, 0.6); 
+  border-radius: 50%;
+  pointer-events: none; 
+  z-index: 3; 
+  transition: all 0.3s ease;
   box-shadow: 0 0 0 2000px rgba(3, 7, 18, 0.4);
 }
 .cam-guide::after {
@@ -270,7 +279,7 @@ tr:last-child td { border-bottom: none; }
   box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
 }
 
-/* NEW OVERLAY START CAMERA BUTTON UI MATCHING FLASHLIGHT BAR */
+/* OVERLAY START CAMERA BUTTON UI */
 .cam-start-btn {
   background: rgba(15, 23, 42, 0.85);
   border: 1px solid var(--line);
@@ -408,48 +417,138 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
 .toast.err { border-left-color: var(--danger); }
 .empty { color: var(--sub); text-align: center; padding: 24px; font-size: 0.8rem; font-weight: 500; }
 
-/* SCREEN FLASHLIGHT OVERLAY */
+/* FULL WHITE SCREEN FLASHLIGHT OVERLAY */
 #screenFlashlight {
-  position: fixed; 
+  position: absolute; 
   inset: 0; 
-  z-index: 10000; 
+  z-index: 10; 
   display: none; 
   pointer-events: none; 
   transition: opacity 0.3s ease;
-  background: rgba(255, 255, 255, 0.95);
-  -webkit-mask-image: radial-gradient(ellipse 110px 140px at 38% 30%, transparent 98%, black 100%);
-  mask-image: radial-gradient(ellipse 110px 140px at 38% 30%, transparent 98%, black 100%);
+  background: #ffffff;
+  -webkit-mask-image: radial-gradient(ellipse 95px 120px at 50% 145px, transparent 98%, black 100%);
+  mask-image: radial-gradient(ellipse 95px 120px at 50% 145px, transparent 98%, black 100%);
 }
 
-/* TOP STATUS CONTAINER SHOWN OVER FLASHLIGHT OVERLAY */
-#topOverlayStatus {
-  position: fixed;
-  top: 15px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 10002;
-  background: rgba(15, 23, 42, 0.9);
-  color: var(--accent);
-  border: 1px solid var(--accent);
-  padding: 8px 18px;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: 700;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.6);
-  pointer-events: none;
-  display: none;
-  text-align: center;
-  backdrop-filter: blur(8px);
+/* WHITE BACKGROUND MODE (LIGHT MODE) FOR ALL CONTAINERS & TEXT */
+body.white-mode {
+  background: #ffffff !important;
+  color: #0f172a !important;
 }
-#topOverlayStatus.success { color: var(--ok); border-color: var(--ok); }
-#topOverlayStatus.fail { color: var(--danger); border-color: var(--danger); }
-#topOverlayStatus.detecting { color: var(--warn); border-color: var(--warn); }
+
+body.white-mode .cam-box {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.white-mode .cam-guide {
+  box-shadow: 0 0 0 2000px #ffffff !important;
+}
+
+body.white-mode aside {
+  background: #ffffff !important;
+  border-right-color: #e2e8f0 !important;
+}
+
+body.white-mode .panel,
+body.white-mode .stat-card,
+body.white-mode .emp-card,
+body.white-mode .modal,
+body.white-mode .gate-card {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+}
+
+body.white-mode h1, 
+body.white-mode h2, 
+body.white-mode h3, 
+body.white-mode b, 
+body.white-mode .ename, 
+body.white-mode .num, 
+body.white-mode .clock,
+body.white-mode .fp-hint,
+body.white-mode .last-log .name {
+  color: #0f172a !important;
+}
+
+body.white-mode .page-sub, 
+body.white-mode .gate-sub, 
+body.white-mode .lbl, 
+body.white-mode .eid, 
+body.white-mode .fp-sub, 
+body.white-mode .last-log .meta, 
+body.white-mode .clock small, 
+body.white-mode th, 
+body.white-mode .empty,
+body.white-mode .field label {
+  color: #475569 !important;
+}
+
+body.white-mode .nav-item {
+  color: #475569 !important;
+}
+
+body.white-mode .nav-item.active {
+  color: #ffffff !important;
+}
+
+body.white-mode input[type=text], 
+body.white-mode input[type=number], 
+body.white-mode input[type=date], 
+body.white-mode select,
+body.white-mode .pin-input,
+body.white-mode .fp-box,
+body.white-mode .vtab {
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+body.white-mode .vtab.active {
+  background: rgba(14, 165, 233, 0.15) !important;
+  color: #0284c7 !important;
+  border-color: #0284c7 !important;
+}
+
+body.white-mode table th,
+body.white-mode table td {
+  border-bottom-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+body.white-mode tr:hover td {
+  background: #f1f5f9 !important;
+}
+
+body.white-mode .scan-status,
+body.white-mode .mode-toggle,
+body.white-mode .cam-start-btn,
+body.white-mode .bulb-btn {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+body.white-mode .big-btn.secondary {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* WHITE MODE TOAST NOTIFICATION */
+body.white-mode .toast {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+  border-left: 4px solid var(--accent) !important;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1) !important;
+}
+body.white-mode .toast.ok { border-left-color: var(--ok) !important; }
+body.white-mode .toast.err { border-left-color: var(--danger) !important; }
 
 @media(max-width: 768px) {
-  #screenFlashlight {
-    -webkit-mask-image: radial-gradient(ellipse 100px 135px at 50% 28%, transparent 98%, black 100%);
-    mask-image: radial-gradient(ellipse 100px 135px at 50% 28%, transparent 98%, black 100%);
-  }
   #app { display: block; }
   aside {
     position: fixed; bottom: 0; left: 0; right: 0; top: auto; height: auto; width: 100%;
@@ -465,12 +564,6 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
 </head>
 <body>
-
-<!-- SCREEN FLASHLIGHT OVERLAY -->
-<div id="screenFlashlight"></div>
-
-<!-- TOP OVERLAY STATUS BADGE FOR FLASHLIGHT TOP VISIBILITY -->
-<div id="topOverlayStatus">Scanning face...</div>
 
 <!-- LOGIN GATE -->
 <div id="gate">
@@ -534,6 +627,9 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
       <div class="page-header"><div><h2 class="page-title">Live Scanner Terminal</h2><p class="page-sub">Automatic face recognition, PIN code, or device fingerprint sensor verification.</p></div></div>
       <div class="scan-wrap">
         <div class="cam-box" id="camBox">
+          <!-- SCREEN FLASHLIGHT OVERLAY INSIDE CAM-BOX -->
+          <div id="screenFlashlight"></div>
+
           <div class="cam-corners"></div>
           <div class="cam-corners-bottom"></div>
           <div class="scan-line"></div>
@@ -811,16 +907,14 @@ function tickClock(){
 }
 setInterval(tickClock, 1000); tickClock();
 
-/* NAV & TAB SWITCHING (FIXED PAGE SWITCHING LOGIC) */
+/* NAV & TAB SWITCHING */
 function navigateToPage(pageName){
   currentPage = pageName;
   
-  // 1. Always stop camera and hide flashlight overlay when switching tabs
   if(pageName !== 'scanner') {
     stopScannerCamera();
   }
 
-  // 2. Hide all pages and show active target page
   document.querySelectorAll('.nav-item').forEach(i=> i.classList.toggle('active', i.dataset.page === pageName));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   
@@ -829,7 +923,6 @@ function navigateToPage(pageName){
     targetPageEl.classList.add('active');
   }
 
-  // 3. Render page specific data
   if(pageName==='dashboard') renderDashboard();
   if(pageName==='employees') renderEmployees();
   if(pageName==='reports') renderReports();
@@ -1208,7 +1301,7 @@ document.getElementById('empSaveBtn').addEventListener('click', ()=>{
   toast('Employee Saved', 'ok');
 });
 
-/* LIVE SCANNER (HIGH-SPEED REALTIME PROCESSING) */
+/* LIVE SCANNER */
 let scanStream = null, isProcessingFrame = false, animationFrameId = null;
 let scanMode = localStorage.getItem(LS_MODE) || 'IN';
 
@@ -1242,10 +1335,13 @@ function isNightOrLowLight(videoEl) {
 function updateFlashlightState(videoEl) {
   const flashEl = document.getElementById('screenFlashlight');
   if (!flashEl) return;
-  if (manualFlashlightState || (scanStream && isNightOrLowLight(videoEl))) {
+  const isNight = scanStream && isNightOrLowLight(videoEl);
+  if (manualFlashlightState || isNight) {
     flashEl.style.display = 'block';
+    document.body.classList.add('white-mode');
   } else {
     flashEl.style.display = 'none';
+    document.body.classList.remove('white-mode');
   }
 }
 
@@ -1312,7 +1408,6 @@ function stopScannerCamera(){
   document.getElementById('camGuide').classList.remove('active');
   setScanStatus('Idle','');
   
-  /* FORCE TURN OFF FLASHLIGHT ON STOP CAMERA */
   manualFlashlightState = false;
   const bulbBtn = document.getElementById('bulbToggleBtn');
   if(bulbBtn) bulbBtn.classList.remove('active');
@@ -1325,23 +1420,12 @@ function stopScannerCamera(){
   isProcessingFrame = false;
 }
 
-/* UPDATED SCAN STATUS FUNCTION WITH TOP OVERLAY BADGE FOR FLASHLIGHT TOP VISIBILITY */
+/* SCAN STATUS DISPLAYED STRICTLY AT BOTTOM-LEFT */
 function setScanStatus(text, cls){
   const el = document.getElementById('scanStatus');
   if(el){
     el.textContent = text; 
     el.className = 'scan-status ' + (cls||'');
-  }
-
-  const topEl = document.getElementById('topOverlayStatus');
-  if(topEl){
-    if(text && text !== 'Idle'){
-      topEl.style.display = 'block';
-      topEl.textContent = text;
-      topEl.className = (cls||'');
-    } else {
-      topEl.style.display = 'none';
-    }
   }
 }
 
@@ -1519,7 +1603,7 @@ function fpSensorVerified(emp){
 
 fpRetryBtn.addEventListener('click', startFpSensor);
 
-/* ATTENDANCE PROCESS WITH SINGLE NOTIFICATION CONTROL */
+/* ATTENDANCE PROCESS */
 function logAttendance(emp, method){
   const date = todayStr();
   const time = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -1629,25 +1713,12 @@ document.getElementById('customDate').addEventListener('change', renderReports);
 document.getElementById('reportSearch').addEventListener('input', renderReports);
 
 document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
-  if(!logs.length){ toast('No log entries to export', 'err'); return; }
-  let csv = 'ID,Name,Date,Entrance Time,Exit Time,Verification Method\n';
-  logs.forEach(l=>{
-    csv += `"${l.empId}","${l.name}","${l.date}","${l.entrance||''}","${l.exit||''}","${l.method||''}"\n`;
-  });
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url;
+  if(!logs.length){ toast('No logs to export', 'err'); return; }
+  const csv = ['ID,Name,Date,IN,OUT,Method', ...logs.map(l=> `"${l.empId}","${l.name}","${l.date}","${l.entrance||''}","${l.exit||''}","${l.method||'Face'}"`)].join('\n');
+  const a = document.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
   a.download = `Attendance_Report_${todayStr()}.csv`;
   a.click();
-  toast('Report Downloaded', 'ok');
 });
-
-/* STARTUP */
-setScanMode(scanMode);
-renderDashboard();
-renderEmployees();
-renderReports();
-loadFaceModels(true);
 </script>
 </body>
 </html>
