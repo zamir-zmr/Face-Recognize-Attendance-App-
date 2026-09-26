@@ -70,7 +70,7 @@ body {
 /* LOGIN GATE */
 #gate {
   position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-  background: rgba(3, 7, 18, 0.9); z-index: 500; backdrop-filter: blur(12px);
+  background: rgba(3, 7, 18, 0.9); z-index: 50000; backdrop-filter: blur(12px);
 }
 .gate-card {
   width: min(340px, 90vw); background: var(--panel2); border: 1px solid var(--line);
@@ -126,7 +126,7 @@ aside {
 }
 .logout-btn:hover { color: var(--danger); border-color: var(--danger); background: rgba(244, 63, 94, 0.05); }
 
-main { padding: 24px 32px 40px; overflow-y: auto; height: 100vh; }
+main { padding: 24px 32px 40px; overflow-y: auto; height: 100vh; position: relative; }
 .page { display: none; }
 .page.active { display: block; animation: fadeIn 0.25s ease; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
@@ -151,6 +151,7 @@ h2.page-title::before { content: ''; position: absolute; left: 0; top: 2px; bott
 .panel {
   background: var(--panel-glass); backdrop-filter: blur(12px); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 18px; margin-bottom: 18px; position: relative;
+  z-index: 5;
 }
 .panel h3 { margin: 0 0 14px; font-size: 0.92rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
 .panel h3::before { content: ''; width: 3px; height: 14px; border-radius: 2px; background: var(--accent-grad); }
@@ -166,7 +167,7 @@ tr:last-child td { border-bottom: none; }
 .badge.out { background: rgba(244, 63, 94, 0.12); color: var(--danger); border: 1px solid rgba(244, 63, 94, 0.25); }
 
 /* HIGH-TECH SCANNER TERMINAL UI */
-.scan-wrap { display: grid; grid-template-columns: 1fr 320px; gap: 18px; }
+.scan-wrap { display: grid; grid-template-columns: 1fr 320px; gap: 18px; position: relative; }
 @media(max-width: 1024px) { .scan-wrap { grid-template-columns: 1fr; } }
 
 .cam-box {
@@ -217,14 +218,14 @@ tr:last-child td { border-bottom: none; }
 
 /* Professional Face Guide Frame */
 .cam-guide {
-  position: absolute; width: 180px; height: 220px;
-  border: 1.5px dashed rgba(56, 189, 248, 0.4); border-radius: 100px;
+  position: absolute; width: 210px; height: 270px;
+  border: 2px dashed rgba(56, 189, 248, 0.6); border-radius: 50%;
   pointer-events: none; z-index: 3; transition: all 0.3s ease;
   box-shadow: 0 0 0 2000px rgba(3, 7, 18, 0.4);
 }
 .cam-guide::after {
-  content: ''; position: absolute; inset: -8px; border-radius: 110px;
-  border: 1px solid rgba(56, 189, 248, 0.15); border-top-color: var(--accent);
+  content: ''; position: absolute; inset: -8px; border-radius: 50%;
+  border: 1.5px solid rgba(56, 189, 248, 0.25); border-top-color: var(--accent);
   animation: rotateGuide 8s linear infinite;
 }
 @keyframes rotateGuide { 100% { transform: rotate(360deg); } }
@@ -235,7 +236,7 @@ tr:last-child td { border-bottom: none; }
 }
 .cam-guide.active::after { border-color: var(--ok); }
 
-.cam-overlay { position: absolute; bottom: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: center; z-index: 5; }
+.cam-overlay { position: absolute; bottom: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: center; z-index: 10005; }
 .scan-status { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); padding: 6px 12px; border-radius: 8px; font-size: 0.75rem; border: 1px solid var(--line); font-weight: 600; }
 .scan-status.detecting { color: var(--warn); }
 .scan-status.success { color: var(--ok); }
@@ -244,8 +245,61 @@ tr:last-child td { border-bottom: none; }
 .mode-toggle button { padding: 5px 12px; border: none; border-radius: 6px; background: transparent; color: var(--sub); cursor: pointer; font-size: 0.72rem; font-weight: 700; transition: 0.2s; }
 .mode-toggle button.active { background: var(--accent-grad); color: #fff; }
 
+/* BULB FLASHLIGHT BUTTON UI */
+.bulb-btn {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--line);
+  color: var(--sub);
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s ease;
+  z-index: 10005;
+}
+.bulb-btn svg { width: 18px; height: 18px; fill: currentColor; }
+.bulb-btn:hover { color: var(--text); border-color: var(--accent); }
+.bulb-btn.active {
+  background: var(--warn);
+  color: #fff;
+  border-color: var(--warn);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+}
+
+/* NEW OVERLAY START CAMERA BUTTON UI MATCHING FLASHLIGHT BAR */
+.cam-start-btn {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 10005;
+}
+.cam-start-btn:hover {
+  border-color: var(--accent);
+  color: #fff;
+}
+.cam-start-btn.active {
+  background: var(--accent-grad);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
 .cam-placeholder { color: var(--sub); text-align: center; padding: 20px; font-size: 0.85rem; line-height: 1.5; z-index: 1; }
-.side-panel { display: flex; flex-direction: column; gap: 14px; }
+.side-panel { display: flex; flex-direction: column; gap: 14px; z-index: 5; }
 .verify-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
 .vtab { flex: 1; padding: 8px 0; text-align: center; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,0.02); color: var(--sub); cursor: pointer; font-size: 0.78rem; font-weight: 600; transition: 0.2s; }
 .vtab.active { color: var(--text); border-color: var(--accent); background: var(--accent-glow); }
@@ -312,7 +366,7 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
 .filters button.active { background: var(--accent-grad); color: #fff; }
 
 /* MODAL */
-.modal-bg { position: fixed; inset: 0; background: rgba(3, 7, 18, 0.85); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 600; padding: 16px; }
+.modal-bg { position: fixed; inset: 0; background: rgba(3, 7, 18, 0.85); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 20000; padding: 16px; }
 .modal-bg.show { display: flex; }
 .modal { background: var(--panel2); border: 1px solid var(--line); border-radius: 18px; padding: 0; width: min(420px, 100%); max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0,0,0,0.8); }
 .modal-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel2); z-index: 2; }
@@ -332,7 +386,8 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
 .modal-actions .cancel { background: transparent; color: var(--text); border: 1px solid var(--line); }
 .modal-actions .confirm { background: var(--accent-grad); color: #fff; }
 .reg-cam { width: 100%; aspect-ratio: 4/3; background: #000; border-radius: 12px; overflow: hidden; position: relative; margin-bottom: 8px; border: 1px solid var(--line); }
-.reg-cam video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.reg-cam video, .reg-cam img { width: 100%; height: 100%; object-fit: cover; }
+.reg-cam video { transform: scaleX(-1); }
 .enroll-status { min-height: 16px; font-size: 0.75rem; color: var(--sub); margin-top: 6px; font-weight: 600; }
 .enroll-status.ok { color: var(--ok); }
 .enroll-status.err { color: var(--danger); }
@@ -347,18 +402,60 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
 .fp-enroll-text { flex: 1; }
 .fp-enroll-text b { font-size: 0.82rem; display: block; }
 .fp-enroll-text span { font-size: 0.72rem; color: var(--sub); }
-.toast-host { position: fixed; top: 18px; right: 18px; z-index: 700; display: flex; flex-direction: column; gap: 8px; }
-.toast { background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 10px 14px; border-radius: 10px; font-size: 0.8rem; min-width: 220px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); animation: fadeIn 0.2s ease; font-weight: 600; }
+.toast-host { position: fixed; top: 18px; right: 18px; z-index: 30000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.toast { pointer-events: auto; background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 10px 14px; border-radius: 10px; font-size: 0.8rem; min-width: 220px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); animation: fadeIn 0.2s ease; font-weight: 600; }
 .toast.ok { border-left-color: var(--ok); }
 .toast.err { border-left-color: var(--danger); }
 .empty { color: var(--sub); text-align: center; padding: 24px; font-size: 0.8rem; font-weight: 500; }
 
+/* SCREEN FLASHLIGHT OVERLAY */
+#screenFlashlight {
+  position: fixed; 
+  inset: 0; 
+  z-index: 10000; 
+  display: none; 
+  pointer-events: none; 
+  transition: opacity 0.3s ease;
+  background: rgba(255, 255, 255, 0.95);
+  -webkit-mask-image: radial-gradient(ellipse 110px 140px at 38% 30%, transparent 98%, black 100%);
+  mask-image: radial-gradient(ellipse 110px 140px at 38% 30%, transparent 98%, black 100%);
+}
+
+/* TOP STATUS CONTAINER SHOWN OVER FLASHLIGHT OVERLAY */
+#topOverlayStatus {
+  position: fixed;
+  top: 15px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10002;
+  background: rgba(15, 23, 42, 0.9);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 8px 18px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+  pointer-events: none;
+  display: none;
+  text-align: center;
+  backdrop-filter: blur(8px);
+}
+#topOverlayStatus.success { color: var(--ok); border-color: var(--ok); }
+#topOverlayStatus.fail { color: var(--danger); border-color: var(--danger); }
+#topOverlayStatus.detecting { color: var(--warn); border-color: var(--warn); }
+
 @media(max-width: 768px) {
+  #screenFlashlight {
+    -webkit-mask-image: radial-gradient(ellipse 100px 135px at 50% 28%, transparent 98%, black 100%);
+    mask-image: radial-gradient(ellipse 100px 135px at 50% 28%, transparent 98%, black 100%);
+  }
   #app { display: block; }
   aside {
     position: fixed; bottom: 0; left: 0; right: 0; top: auto; height: auto; width: 100%;
     display: flex; flex-direction: row; justify-content: space-around; align-items: center;
     padding: 6px; border-right: none; border-top: 1px solid var(--line); background: var(--panel2);
+    z-index: 10010;
   }
   .side-brand, .side-foot { display: none; }
   .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 0.65rem; padding: 6px 2px; border-radius: 8px; }
@@ -368,6 +465,12 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
 </head>
 <body>
+
+<!-- SCREEN FLASHLIGHT OVERLAY -->
+<div id="screenFlashlight"></div>
+
+<!-- TOP OVERLAY STATUS BADGE FOR FLASHLIGHT TOP VISIBILITY -->
+<div id="topOverlayStatus">Scanning face...</div>
 
 <!-- LOGIN GATE -->
 <div id="gate">
@@ -447,20 +550,29 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
           <div class="cam-placeholder" id="camPlaceholder">Camera is off.<br>Tap "Start Camera" below to launch live scanning.</div>
           <video id="video" autoplay muted playsinline style="display:none;"></video>
           <canvas id="overlay"></canvas>
+          
           <div class="cam-overlay">
             <div class="scan-status" id="scanStatus">Idle</div>
-            <div class="mode-toggle">
-              <button id="modeIn">IN</button>
-              <button id="modeOut">OUT</button>
-              <button id="modeAuto">AUTO</button>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button class="cam-start-btn" id="camToggleBtn">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                <span>Start Camera</span>
+              </button>
+              <button class="bulb-btn" id="bulbToggleBtn" title="Toggle Flashlight Light">
+                <svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7zm-3 18a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1H9v1z"/></svg>
+              </button>
+              <div class="mode-toggle">
+                <button id="modeIn">IN</button>
+                <button id="modeOut">OUT</button>
+                <button id="modeAuto">AUTO</button>
+              </div>
             </div>
           </div>
         </div>
 
         <div class="side-panel">
           <div class="panel" style="margin-bottom:0;">
-            <button class="big-btn" id="camToggleBtn">Start Camera</button>
-            <div style="display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap;">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
               <span class="scan-status" id="modelStatus" style="background:rgba(255,255,255,0.03);">Checking Face Engine…</span>
               <button class="big-btn secondary" id="retryModelsBtn" style="display:none;width:auto;padding:4px 8px;font-size:.72rem;">Retry Models</button>
             </div>
@@ -501,8 +613,13 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
     <section class="page" id="page-employees">
       <div class="page-header"><div><h2 class="page-title">Employee Directory</h2><p class="page-sub">Manage staff accounts and facial descriptors.</p></div></div>
       <div class="emp-toolbar">
-        <input type="text" id="empSearch" placeholder="Search employee name or ID…" style="min-width:220px;">
-        <button class="big-btn" style="width:auto;padding:8px 18px;" id="addEmpBtn">+ Add Employee</button>
+        <input type="text" id="empSearch" placeholder="Search employee name or ID…" style="min-width:200px;">
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <button class="big-btn secondary" style="width:auto;padding:8px 14px;" id="exportJsonBtn">Export JSON</button>
+          <button class="big-btn secondary" style="width:auto;padding:8px 14px;" id="importJsonBtn">Import JSON</button>
+          <input type="file" id="importJsonInput" accept=".json" style="display:none;">
+          <button class="big-btn" style="width:auto;padding:8px 18px;" id="addEmpBtn">+ Add Employee</button>
+        </div>
       </div>
       <div class="emp-grid" id="empGrid"></div>
     </section>
@@ -556,8 +673,13 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
         <div class="modal-section-title">Facial Enrollment <span class="enroll-badge" id="faceEnrollBadge">Not Enrolled</span></div>
         <div class="reg-cam" id="regCamBox">
           <video id="regVideo" autoplay muted playsinline></video>
+          <img id="galleryPreview" style="display:none;" alt="Selected Photo">
         </div>
-        <button class="big-btn secondary" id="regCamBtn" style="margin-bottom:6px;">Start Reg Camera</button>
+        <div style="display:flex; gap:6px; margin-bottom:6px;">
+          <button class="big-btn secondary" id="regCamBtn" style="flex:1;">Start Reg Camera</button>
+          <button class="big-btn secondary" id="chooseGalleryBtn" style="flex:1;">Choose from Gallery</button>
+          <input type="file" id="galleryInput" accept="image/*" style="display:none;">
+        </div>
         <button class="big-btn" id="captureFaceBtn" disabled>Capture Face Data</button>
         <div class="enroll-status" id="regFaceStatus"></div>
       </div>
@@ -601,11 +723,23 @@ let isAdminUnlocked = false;
 let pendingPageTarget = null;
 let currentPage = 'scanner';
 let activeFilter = 'today';
+let manualFlashlightState = false;
+
+/* TOAST THROTTLE / COOLDOWN PREVENT SPAM */
+let lastToastMessage = '';
+let lastToastTime = 0;
 
 function saveEmployees(){ localStorage.setItem(LS_EMP, JSON.stringify(employees)); }
 function saveLogs(){ localStorage.setItem(LS_LOG, JSON.stringify(logs)); }
 
 function toast(msg, type='info'){
+  const now = Date.now();
+  if (msg === lastToastMessage && (now - lastToastTime) < 3000) {
+    return;
+  }
+  lastToastMessage = msg;
+  lastToastTime = now;
+
   const host = document.getElementById('toastHost');
   const t = document.createElement('div');
   t.className = 'toast ' + (type==='ok'?'ok':type==='err'?'err':'');
@@ -677,16 +811,28 @@ function tickClock(){
 }
 setInterval(tickClock, 1000); tickClock();
 
-/* NAV */
+/* NAV & TAB SWITCHING (FIXED PAGE SWITCHING LOGIC) */
 function navigateToPage(pageName){
   currentPage = pageName;
+  
+  // 1. Always stop camera and hide flashlight overlay when switching tabs
+  if(pageName !== 'scanner') {
+    stopScannerCamera();
+  }
+
+  // 2. Hide all pages and show active target page
   document.querySelectorAll('.nav-item').forEach(i=> i.classList.toggle('active', i.dataset.page === pageName));
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.getElementById('page-'+pageName).classList.add('active');
+  
+  const targetPageEl = document.getElementById('page-'+pageName);
+  if(targetPageEl) {
+    targetPageEl.classList.add('active');
+  }
+
+  // 3. Render page specific data
   if(pageName==='dashboard') renderDashboard();
   if(pageName==='employees') renderEmployees();
   if(pageName==='reports') renderReports();
-  if(pageName!=='scanner') stopScannerCamera();
 }
 
 document.querySelectorAll('.nav-item').forEach(item=>{
@@ -697,7 +843,7 @@ document.querySelectorAll('.nav-item').forEach(item=>{
   });
 });
 
-/* FACE API LOADERS (Pre-configured for maximum speed) */
+/* FACE API LOADERS */
 let faceApiReady = false;
 let faceApiLoading = false;
 const MODEL_MIRRORS = [
@@ -789,9 +935,64 @@ function renderEmployees(){
 }
 document.getElementById('empSearch').addEventListener('input', renderEmployees);
 
+/* EMPLOYEE DATA JSON IMPORT & EXPORT */
+document.getElementById('exportJsonBtn').addEventListener('click', ()=>{
+  if(!employees.length){ toast('No employee records to export', 'err'); return; }
+  const cleanEmployees = employees.map(({ descriptor, photo, ...rest }) => rest);
+  const jsonStr = JSON.stringify(cleanEmployees, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Employees_Backup_${todayStr()}.json`;
+  a.click();
+  toast('Employees JSON Exported', 'ok');
+});
+
+document.getElementById('importJsonBtn').addEventListener('click', ()=>{
+  document.getElementById('importJsonInput').click();
+});
+
+document.getElementById('importJsonInput').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt)=>{
+    try{
+      const imported = JSON.parse(evt.target.result);
+      if(!Array.isArray(imported)){
+        toast('Invalid JSON format', 'err');
+        return;
+      }
+      let addedCount = 0;
+      let updatedCount = 0;
+      imported.forEach(imp=>{
+        if(!imp.id || !imp.name) return;
+        const idx = employees.findIndex(e=>e.id === imp.id);
+        if(idx !== -1){
+          employees[idx] = { ...employees[idx], ...imp };
+          updatedCount++;
+        } else {
+          employees.push(imp);
+          addedCount++;
+        }
+      });
+      saveEmployees();
+      renderEmployees();
+      renderDashboard();
+      toast(`Imported: ${addedCount} added, ${updatedCount} updated`, 'ok');
+    }catch(err){
+      toast('Failed to parse JSON file', 'err');
+    }
+    e.target.value = '';
+  };
+  reader.readAsText(file);
+});
+
 /* ADD / EDIT MODAL */
 const empModalBg = document.getElementById('empModalBg');
 let editingId = null, regStream = null, capturedDescriptor = null, capturedPhoto = null, capturedFpEnrolled = false, fpCredentialId = null;
+let currentEnrollSource = 'cam';
 
 document.getElementById('addEmpBtn').addEventListener('click', ()=> openEmpModal(null));
 document.getElementById('empCancelBtn').addEventListener('click', closeEmpModal);
@@ -810,6 +1011,9 @@ function updateEnrollBadges(){
 
 function openEmpModal(id){
   editingId = id; capturedDescriptor = null; capturedPhoto = null; capturedFpEnrolled = false; fpCredentialId = null;
+  currentEnrollSource = 'cam';
+  document.getElementById('galleryPreview').style.display = 'none';
+  document.getElementById('regVideo').style.display = 'block';
   document.getElementById('regFaceStatus').textContent = '';
   document.getElementById('regFaceStatus').className = 'enroll-status';
   document.getElementById('regFpStatus').textContent = '';
@@ -825,6 +1029,11 @@ function openEmpModal(id){
     document.getElementById('fEmpFpTag').value = e.fpTag || '';
     capturedDescriptor = e.descriptor || null; capturedPhoto = e.photo || null;
     capturedFpEnrolled = !!e.fpEnrolled; fpCredentialId = e.fpCredentialId || null;
+    if(e.photo){
+      document.getElementById('galleryPreview').src = e.photo;
+      document.getElementById('galleryPreview').style.display = 'block';
+      document.getElementById('regVideo').style.display = 'none';
+    }
   } else {
     document.getElementById('empModalTitle').textContent = 'Add Employee';
     document.getElementById('fEmpId').disabled = false; document.getElementById('fEmpId').value = '';
@@ -837,6 +1046,10 @@ function openEmpModal(id){
 function closeEmpModal(){ empModalBg.classList.remove('show'); stopRegCamera(); }
 
 document.getElementById('regCamBtn').addEventListener('click', async ()=>{
+  stopRegCamera();
+  currentEnrollSource = 'cam';
+  document.getElementById('galleryPreview').style.display = 'none';
+  document.getElementById('regVideo').style.display = 'block';
   try{
     regStream = await navigator.mediaDevices.getUserMedia({video:{width:320,height:240}});
     document.getElementById('regVideo').srcObject = regStream;
@@ -845,19 +1058,63 @@ document.getElementById('regCamBtn').addEventListener('click', async ()=>{
 });
 function stopRegCamera(){ if(regStream){ regStream.getTracks().forEach(t=>t.stop()); regStream=null; } }
 
+/* CHOOSE FROM GALLERY PHOTO UPLOAD */
+document.getElementById('chooseGalleryBtn').addEventListener('click', ()=>{
+  document.getElementById('galleryInput').click();
+});
+
+document.getElementById('galleryInput').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt)=>{
+    stopRegCamera();
+    currentEnrollSource = 'gallery';
+    const preview = document.getElementById('galleryPreview');
+    preview.src = evt.target.result;
+    preview.style.display = 'block';
+    document.getElementById('regVideo').style.display = 'none';
+    document.getElementById('captureFaceBtn').disabled = false;
+    document.getElementById('regFaceStatus').textContent = 'Photo selected from gallery. Click "Capture Face Data" to extract embedding.';
+    document.getElementById('regFaceStatus').className = 'enroll-status';
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+
 document.getElementById('captureFaceBtn').addEventListener('click', async ()=>{
   const video = document.getElementById('regVideo');
+  const preview = document.getElementById('galleryPreview');
   const statusEl = document.getElementById('regFaceStatus');
+
+  let inputSource = currentEnrollSource === 'gallery' ? preview : video;
+
   if(!faceApiReady){
-    capturedPhoto = snapshotToDataUrl(video); statusEl.textContent = 'Saved Photo only (No face model)'; updateEnrollBadges(); return;
+    capturedPhoto = currentEnrollSource === 'gallery' ? preview.src : snapshotToDataUrl(video);
+    statusEl.textContent = 'Saved Photo only (No face model)';
+    updateEnrollBadges();
+    return;
   }
   statusEl.textContent = 'Extracting Descriptor…';
-  const det = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.4 })).withFaceLandmarks().withFaceDescriptor();
-  if(!det){ statusEl.textContent = 'No face detected!'; statusEl.className='enroll-status err'; return; }
-  capturedDescriptor = Array.from(det.descriptor);
-  capturedPhoto = snapshotToDataUrl(video);
-  statusEl.textContent = 'Face captured ✓'; statusEl.className='enroll-status ok';
-  updateEnrollBadges();
+  try{
+    const det = await faceapi.detectSingleFace(inputSource, new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.4 }))
+      .withFaceLandmarks().withFaceDescriptor();
+
+    if(!det){ 
+      statusEl.textContent = 'No face detected in photo!'; 
+      statusEl.className = 'enroll-status err'; 
+      return; 
+    }
+
+    capturedDescriptor = Array.from(det.descriptor);
+    capturedPhoto = currentEnrollSource === 'gallery' ? preview.src : snapshotToDataUrl(video);
+    statusEl.textContent = 'Face captured ✓'; 
+    statusEl.className = 'enroll-status ok';
+    updateEnrollBadges();
+  }catch(e){
+    statusEl.textContent = 'Face extraction failed.';
+    statusEl.className = 'enroll-status err';
+  }
 });
 
 function snapshotToDataUrl(video){
@@ -955,6 +1212,51 @@ document.getElementById('empSaveBtn').addEventListener('click', ()=>{
 let scanStream = null, isProcessingFrame = false, animationFrameId = null;
 let scanMode = localStorage.getItem(LS_MODE) || 'IN';
 
+/* FLASHLIGHT / LOW-LIGHT DETECTION LOGIC */
+let flashCheckCanvas = document.createElement('canvas');
+let flashCheckCtx = flashCheckCanvas.getContext('2d');
+
+function isNightOrLowLight(videoEl) {
+  const hour = new Date().getHours();
+  const isNightTime = (hour >= 19 || hour < 6);
+
+  let isLowBrightness = false;
+  if (videoEl && videoEl.videoWidth > 0) {
+    flashCheckCanvas.width = 64;
+    flashCheckCanvas.height = 48;
+    flashCheckCtx.drawImage(videoEl, 0, 0, 64, 48);
+    const imgData = flashCheckCtx.getImageData(0, 0, 64, 48);
+    let totalBrightness = 0;
+    for (let i = 0; i < imgData.data.length; i += 4) {
+      totalBrightness += (imgData.data[i] + imgData.data[i + 1] + imgData.data[i + 2]) / 3;
+    }
+    const avgBrightness = totalBrightness / (imgData.data.length / 4);
+    if (avgBrightness < 50) {
+      isLowBrightness = true;
+    }
+  }
+
+  return isNightTime || isLowBrightness;
+}
+
+function updateFlashlightState(videoEl) {
+  const flashEl = document.getElementById('screenFlashlight');
+  if (!flashEl) return;
+  if (manualFlashlightState || (scanStream && isNightOrLowLight(videoEl))) {
+    flashEl.style.display = 'block';
+  } else {
+    flashEl.style.display = 'none';
+  }
+}
+
+document.getElementById('bulbToggleBtn').addEventListener('click', ()=>{
+  manualFlashlightState = !manualFlashlightState;
+  const bulbBtn = document.getElementById('bulbToggleBtn');
+  bulbBtn.classList.toggle('active', manualFlashlightState);
+  const video = document.getElementById('video');
+  updateFlashlightState(video);
+});
+
 function setScanMode(m){
   scanMode = m; localStorage.setItem(LS_MODE, m);
   ['modeIn','modeOut','modeAuto'].forEach(id=>document.getElementById(id).classList.remove('active'));
@@ -964,18 +1266,24 @@ document.getElementById('modeIn').addEventListener('click', ()=>setScanMode('IN'
 document.getElementById('modeOut').addEventListener('click', ()=>setScanMode('OUT'));
 document.getElementById('modeAuto').addEventListener('click', ()=>setScanMode('AUTO'));
 
-document.getElementById('camToggleBtn').addEventListener('click', async ()=>{
+const camToggleBtn = document.getElementById('camToggleBtn');
+
+camToggleBtn.addEventListener('click', async ()=>{
   if(scanStream){ stopScannerCamera(); return; }
   try{
     scanStream = await navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:"user"}});
     const video = document.getElementById('video');
     video.srcObject = scanStream; video.style.display = 'block';
     document.getElementById('camPlaceholder').style.display = 'none';
-    document.getElementById('camToggleBtn').textContent = 'Stop Camera';
+    
+    camToggleBtn.classList.add('active');
+    camToggleBtn.querySelector('span').textContent = 'Stop Camera';
     document.getElementById('camBox').classList.add('active-scan');
 
+    updateFlashlightState(video);
+
     if(!faceApiReady) await loadFaceModels(true);
-    if(faceApiReady){ setScanStatus('Scanning Face…', 'detecting'); startScanLoop(); }
+    if(faceApiReady){ setScanStatus('Scanning face...', 'detecting'); startScanLoop(); }
     else setScanStatus('Models unavailable', 'fail');
   }catch(e){ toast('Camera blocked or unavailable.', 'err'); }
 });
@@ -996,18 +1304,45 @@ function stopScannerCamera(){
   const video = document.getElementById('video');
   video.style.display='none'; video.srcObject=null;
   document.getElementById('camPlaceholder').style.display='block';
-  document.getElementById('camToggleBtn').textContent = 'Start Camera';
+  
+  camToggleBtn.classList.remove('active');
+  camToggleBtn.querySelector('span').textContent = 'Start Camera';
+  
   document.getElementById('camBox').classList.remove('active-scan');
   document.getElementById('camGuide').classList.remove('active');
   setScanStatus('Idle','');
+  
+  /* FORCE TURN OFF FLASHLIGHT ON STOP CAMERA */
+  manualFlashlightState = false;
+  const bulbBtn = document.getElementById('bulbToggleBtn');
+  if(bulbBtn) bulbBtn.classList.remove('active');
+  updateFlashlightState(null);
+
   const overlay = document.getElementById('overlay');
-  overlay.getContext('2d').clearRect(0,0,overlay.width||640,overlay.height||480);
+  if(overlay && overlay.getContext){
+    overlay.getContext('2d').clearRect(0,0,overlay.width||640,overlay.height||480);
+  }
   isProcessingFrame = false;
 }
 
+/* UPDATED SCAN STATUS FUNCTION WITH TOP OVERLAY BADGE FOR FLASHLIGHT TOP VISIBILITY */
 function setScanStatus(text, cls){
   const el = document.getElementById('scanStatus');
-  el.textContent = text; el.className = 'scan-status ' + cls;
+  if(el){
+    el.textContent = text; 
+    el.className = 'scan-status ' + (cls||'');
+  }
+
+  const topEl = document.getElementById('topOverlayStatus');
+  if(topEl){
+    if(text && text !== 'Idle'){
+      topEl.style.display = 'block';
+      topEl.textContent = text;
+      topEl.className = (cls||'');
+    } else {
+      topEl.style.display = 'none';
+    }
+  }
 }
 
 async function runFaceScan(){
@@ -1016,6 +1351,8 @@ async function runFaceScan(){
   const overlay = document.getElementById('overlay');
   const guide = document.getElementById('camGuide');
   if(!video.videoWidth || !video.videoHeight){ isProcessingFrame = false; return; }
+
+  updateFlashlightState(video);
 
   overlay.width = video.videoWidth; overlay.height = video.videoHeight;
   const ctx = overlay.getContext('2d');
@@ -1026,14 +1363,13 @@ async function runFaceScan(){
 
   let det;
   try{
-    // High-speed detection configured using inputSize: 128
     det = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.4 }))
       .withFaceLandmarks().withFaceDescriptor();
   }catch(e){ isProcessingFrame = false; return; }
 
   if(!det){ 
     guide.classList.remove('active');
-    setScanStatus('Scanning…', 'detecting'); 
+    setScanStatus('Scanning face...', 'detecting'); 
     isProcessingFrame = false; 
     return; 
   }
@@ -1047,7 +1383,7 @@ async function runFaceScan(){
   const best = matcher.findBestMatch(det.descriptor);
 
   if(best.label === 'unknown'){
-    setScanStatus('Face Not Recognized', 'fail');
+    setScanStatus('Face not recognized', 'fail');
     isProcessingFrame = false;
     return;
   }
@@ -1183,7 +1519,7 @@ function fpSensorVerified(emp){
 
 fpRetryBtn.addEventListener('click', startFpSensor);
 
-/* ATTENDANCE PROCESS */
+/* ATTENDANCE PROCESS WITH SINGLE NOTIFICATION CONTROL */
 function logAttendance(emp, method){
   const date = todayStr();
   const time = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -1193,12 +1529,25 @@ function logAttendance(emp, method){
   if(mode === 'AUTO') mode = rec ? 'OUT' : 'IN';
 
   if(mode === 'IN'){
-    if(rec){ toast(emp.name+' already checked IN.', 'err'); return; }
+    if(rec){ 
+      toast(emp.name+' already checked in', 'err'); 
+      setScanStatus('', 'fail');
+      return; 
+    }
     logs.push({ empId: emp.id, name: emp.name, date, entrance: time, exit: null, method });
   } else {
     const openRec = logs.find(l=> l.empId===emp.id && l.date===date && l.entrance && !l.exit);
-    if(openRec) openRec.exit = time;
-    else logs.push({ empId: emp.id, name: emp.name, date, entrance: null, exit: time, method });
+    if(openRec) {
+      openRec.exit = time;
+    } else {
+      const alreadyCheckedOut = logs.find(l=> l.empId===emp.id && l.date===date && l.exit);
+      if(alreadyCheckedOut) {
+        toast(emp.name+' already checked out', 'err');
+        setScanStatus('', 'fail');
+        return;
+      }
+      logs.push({ empId: emp.id, name: emp.name, date, entrance: null, exit: time, method });
+    }
   }
 
   saveLogs();
@@ -1293,7 +1642,7 @@ document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
   toast('Report Downloaded', 'ok');
 });
 
-/* STARTUP (Pre-loads models immediately on page start) */
+/* STARTUP */
 setScanMode(scanMode);
 renderDashboard();
 renderEmployees();
@@ -1302,4 +1651,3 @@ loadFaceModels(true);
 </script>
 </body>
 </html>
-    
