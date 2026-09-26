@@ -1,3 +1,5 @@
 [user]
 	email = ansarizamir634@gmail.com
 	name = Zamir Ansari
+[credential]
+	helper = store
