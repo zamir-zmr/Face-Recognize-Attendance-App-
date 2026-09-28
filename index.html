@@ -430,18 +430,34 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
   mask-image: radial-gradient(ellipse 95px 120px at 50% 145px, transparent 98%, black 100%);
 }
 
-/* DYNAMIC POSE CHALLENGE BANNER */
+/* DYNAMIC POSE CHALLENGE BANNER — bold, colour-coded, animated directional arrows */
 #poseChallenge {
-  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
-  z-index: 100; display: none; pointer-events: none;
-  padding: 8px 18px; border-radius: 12px; text-align: center;
-  background: rgba(15, 23, 42, 0.88); border: 1px solid var(--accent);
-  box-shadow: 0 0 18px var(--accent-glow); backdrop-filter: blur(8px);
-  color: #fff; font-weight: 800; white-space: nowrap;
+  position: absolute; z-index: 100; display: none; flex-direction: column; align-items: center; gap: 2px;
+  pointer-events: none; padding: 10px 22px 8px; border-radius: 18px; max-width: 82%;
+  background: rgba(3, 7, 18, 0.84); border: 3px solid var(--pc, #38bdf8);
+  box-shadow: 0 0 28px var(--pc, #38bdf8), 0 8px 24px rgba(0,0,0,0.6);
+  backdrop-filter: blur(6px); color: #fff; text-align: center;
 }
-#poseChallenge .pose-arrow { font-size: 2rem; line-height: 1; display: block; }
-#poseChallenge .pose-text  { font-size: 0.78rem; letter-spacing: 0.5px; display: block; margin-top: 2px; }
-#poseChallenge.fail { border-color: var(--danger); }
+#poseChallenge.pose-UP    { top: 14px; left: 50%; transform: translateX(-50%); }
+#poseChallenge.pose-DOWN  { bottom: 64px; left: 50%; transform: translateX(-50%); }
+#poseChallenge.pose-LEFT  { left: 14px; top: 50%; transform: translateY(-50%); }
+#poseChallenge.pose-RIGHT { right: 14px; top: 50%; transform: translateY(-50%); }
+#poseChallenge .pose-arrow { display: block; width: 88px; height: 88px; transform: rotate(var(--rot, 0deg)); }
+#poseChallenge .pose-arrow svg {
+  width: 100%; height: 100%; display: block;
+  fill: var(--pc, #38bdf8); stroke: #ffffff; stroke-width: 4; stroke-linejoin: round;
+  filter: drop-shadow(0 3px 6px rgba(0,0,0,0.85));
+  animation: poseNudge 0.65s ease-in-out infinite alternate;
+}
+@keyframes poseNudge { from { transform: translateY(6px); } to { transform: translateY(-9px); } }
+#poseChallenge .pose-label { font-size: 1.6rem; font-weight: 900; letter-spacing: 4px; line-height: 1.1; color: var(--pc, #38bdf8); text-shadow: 0 2px 8px rgba(0,0,0,0.9); }
+#poseChallenge .pose-text  { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.3px; color: #fff; }
+#poseChallenge.fail { animation: fpShake 0.35s ease; }
+@media (max-width: 480px) {
+  #poseChallenge { padding: 8px 14px 6px; }
+  #poseChallenge .pose-arrow { width: 62px; height: 62px; }
+  #poseChallenge .pose-label { font-size: 1.15rem; }
+}
 
 /* WHITE BACKGROUND MODE (LIGHT MODE) FOR ALL CONTAINERS & TEXT */
 body.white-mode {
@@ -644,7 +660,7 @@ body.white-mode .toast.err { border-left-color: var(--danger) !important; }
           <div id="screenFlashlight"></div>
           
           <!-- DYNAMIC POSE CHALLENGE BANNER -->
-          <div id="poseChallenge"><span class="pose-arrow" id="poseArrow"></span><span class="pose-text" id="poseText"></span></div>
+          <div id="poseChallenge"><span class="pose-arrow" id="poseArrow"></span><span class="pose-label" id="poseLabel"></span><span class="pose-text" id="poseText"></span></div>
 
           <div class="cam-corners"></div>
           <div class="cam-corners-bottom"></div>
@@ -1324,29 +1340,71 @@ let isVerifyingLiveness = false;
 
 /* FLASHLIGHT / LOW-LIGHT DETECTION LOGIC */
 let flashCheckCanvas = document.createElement('canvas');
-let flashCheckCtx = flashCheckCanvas.getContext('2d');
+let flashCheckCtx = flashCheckCanvas.getContext('2d', { willReadFrequently: true });
+
+let lastAvgBrightness = 255, lowBrightnessLatched = false, brightnessTs = 0;
+const LOWLIGHT_ON_BELOW = 50;        /* switch screen-light ON below this  */
+const LOWLIGHT_OFF_ABOVE = 80;       /* switch OFF only above this (hysteresis: no flicker) */
+const LOWLIGHT_ENHANCE_BELOW = 95;   /* digitally brighten frames for the detector below this */
 
 function isNightOrLowLight(videoEl) {
   const hour = new Date().getHours();
   const isNightTime = (hour >= 19 || hour < 6);
 
-  let isLowBrightness = false;
   if (videoEl && videoEl.videoWidth > 0) {
-    flashCheckCanvas.width = 64;
-    flashCheckCanvas.height = 48;
-    flashCheckCtx.drawImage(videoEl, 0, 0, 64, 48);
-    const imgData = flashCheckCtx.getImageData(0, 0, 64, 48);
-    let totalBrightness = 0;
-    for (let i = 0; i < imgData.data.length; i += 4) {
-      totalBrightness += (imgData.data[i] + imgData.data[i + 1] + imgData.data[i + 2]) / 3;
-    }
-    const avgBrightness = totalBrightness / (imgData.data.length / 4);
-    if (avgBrightness < 50) {
-      isLowBrightness = true;
+    const t = performance.now();
+    if (t - brightnessTs > 500) {           /* measure at most twice per second */
+      brightnessTs = t;
+      flashCheckCanvas.width = 64;
+      flashCheckCanvas.height = 48;
+      flashCheckCtx.drawImage(videoEl, 0, 0, 64, 48);
+      const d = flashCheckCtx.getImageData(0, 0, 64, 48).data;
+      let total = 0;
+      for (let i = 0; i < d.length; i += 4) total += (d[i] + d[i + 1] + d[i + 2]) / 3;
+      lastAvgBrightness = total / (d.length / 4);
+      if (!lowBrightnessLatched && lastAvgBrightness < LOWLIGHT_ON_BELOW) lowBrightnessLatched = true;
+      else if (lowBrightnessLatched && lastAvgBrightness > LOWLIGHT_OFF_ABOVE) lowBrightnessLatched = false;
     }
   }
+  return isNightTime || lowBrightnessLatched;
+}
 
-  return isNightTime || isLowBrightness;
+/* Gamma-brightened copy of the frame for face detection in dim rooms (reused canvas) */
+const enhCanvas = document.createElement('canvas');
+const enhCtx = enhCanvas.getContext('2d', { willReadFrequently: true });
+const GAMMA_LUT = (() => { const l = new Uint8ClampedArray(256); for (let i = 0; i < 256; i++) l[i] = Math.pow(i / 255, 0.55) * 255 * 1.08; return l; })();
+function getDetectionInput(video) {
+  if (lastAvgBrightness >= LOWLIGHT_ENHANCE_BELOW) return video;
+  const w = video.videoWidth, h = video.videoHeight;
+  if (enhCanvas.width !== w) enhCanvas.width = w;
+  if (enhCanvas.height !== h) enhCanvas.height = h;
+  enhCtx.drawImage(video, 0, 0, w, h);
+  const img = enhCtx.getImageData(0, 0, w, h), d = img.data;
+  for (let i = 0; i < d.length; i += 4) { d[i] = GAMMA_LUT[d[i]]; d[i + 1] = GAMMA_LUT[d[i + 1]]; d[i + 2] = GAMMA_LUT[d[i + 2]]; }
+  enhCtx.putImageData(img, 0, 0);
+  return enhCanvas;
+}
+
+/* Cached detector options (created once, bigger input + lower threshold in low light) */
+const _optsCache = {};
+function getOpts(size, thr) {
+  const k = size + '_' + thr;
+  return _optsCache[k] || (_optsCache[k] = new faceapi.TinyFaceDetectorOptions({ inputSize: size, scoreThreshold: thr }));
+}
+function isDimNow() { return lastAvgBrightness < LOWLIGHT_ENHANCE_BELOW; }
+function getScanOpts() { return isDimNow() ? getOpts(224, 0.3) : getOpts(128, 0.4); }
+function getPoseOpts() { return isDimNow() ? getOpts(224, 0.3) : getOpts(160, 0.4); }
+
+/* Cached FaceMatcher (rebuilt only when enrolled descriptors change) */
+let cachedMatcher = null, cachedMatcherSig = '';
+function getMatcher(enrolled) {
+  const sig = enrolled.map(e => e.id + ':' + e.descriptor.length + ':' + e.descriptor[0] + ':' + e.descriptor[63]).join('|');
+  if (!cachedMatcher || sig !== cachedMatcherSig) {
+    const labeled = enrolled.map(e => new faceapi.LabeledFaceDescriptors(e.id, [new Float32Array(e.descriptor)]));
+    cachedMatcher = new faceapi.FaceMatcher(labeled, FACE_MATCH_THRESHOLD);
+    cachedMatcherSig = sig;
+  }
+  return cachedMatcher;
 }
 
 function updateFlashlightState(videoEl) {
@@ -1401,11 +1459,17 @@ camToggleBtn.addEventListener('click', async ()=>{
   }catch(e){ toast('Camera blocked or unavailable.', 'err'); }
 });
 
+let scanGapMs = 100;   /* adaptive delay between scans: longer when no face / unknown face */
 function startScanLoop(){
   if(animationFrameId) cancelAnimationFrame(animationFrameId);
-  const loop = async () => {
+  let lastRun = 0;
+  const loop = async (ts) => {
     if(!scanStream) return;
-    if(!isProcessingFrame && !isVerifyingLiveness) await runFaceScan();
+    /* skip work while tab is hidden, busy, or inside the throttle window */
+    if(!document.hidden && !isProcessingFrame && !isVerifyingLiveness && (ts - lastRun) >= scanGapMs){
+      await runFaceScan();
+      lastRun = performance.now();
+    }
     animationFrameId = requestAnimationFrame(loop);
   };
   animationFrameId = requestAnimationFrame(loop);
@@ -1426,6 +1490,7 @@ function stopScannerCamera(){
   setScanStatus('Idle','');
   
   manualFlashlightState = false;
+  lowBrightnessLatched = false; lastAvgBrightness = 255; brightnessTs = 0;
   const bulbBtn = document.getElementById('bulbToggleBtn');
   if(bulbBtn) bulbBtn.classList.remove('active');
   updateFlashlightState(null);
@@ -1450,23 +1515,21 @@ function setScanStatus(text, cls){
 
 /* LIVENESS HELPERS */
 let livenessCanvas = document.createElement('canvas');
-let livenessCtx = livenessCanvas.getContext('2d');
+let livenessCtx = livenessCanvas.getContext('2d', { willReadFrequently: true });
 
 /* MICRO-MOTION LIVENESS CHECK: real faces show tiny natural motion/texture change
    between frames; a flat printed photo or a static/looping video screen tends to
    show near-zero pixel variance across a short interval. This runs BEFORE the
    pose challenge and adds an extra signal that must also pass. */
 function getFaceFrameSnapshot(video, box) {
-  livenessCanvas.width = video.videoWidth;
-  livenessCanvas.height = video.videoHeight;
-  livenessCtx.drawImage(video, 0, 0);
-
-  let sampleX = Math.max(0, Math.floor(box.x));
-  let sampleY = Math.max(0, Math.floor(box.y));
-  let sampleW = Math.max(1, Math.floor(box.width));
-  let sampleH = Math.max(1, Math.floor(box.height));
-
-  return livenessCtx.getImageData(sampleX, sampleY, sampleW, sampleH).data;
+  let sx = Math.max(0, Math.floor(box.x));
+  let sy = Math.max(0, Math.floor(box.y));
+  let sw = Math.max(1, Math.min(video.videoWidth - sx, Math.floor(box.width)));
+  let sh = Math.max(1, Math.min(video.videoHeight - sy, Math.floor(box.height)));
+  if (livenessCanvas.width !== sw) livenessCanvas.width = sw;
+  if (livenessCanvas.height !== sh) livenessCanvas.height = sh;
+  livenessCtx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);   /* draw only the face crop, not the full frame */
+  return livenessCtx.getImageData(0, 0, sw, sh).data;
 }
 
 async function verifyMicroMotionLiveness(video, box) {
@@ -1500,15 +1563,18 @@ async function verifyMicroMotionLiveness(video, box) {
    LEFT / RIGHT are from the USER's point of view (camera preview is mirrored). */
 const POSE_LIST = ['UP','DOWN','LEFT','RIGHT'];
 const POSE_INFO = {
-  UP:    { arrow:'⬆', text:'Sar UPAR uthaiye (Look UP)' },
-  DOWN:  { arrow:'⬇', text:'Sar NEECHE jhukaiye (Look DOWN)' },
-  LEFT:  { arrow:'⬅', text:'Sar apni LEFT taraf ghumaiye (Turn LEFT)' },
-  RIGHT: { arrow:'➡', text:'Sar apni RIGHT taraf ghumaiye (Turn RIGHT)' }
+  UP:    { label:'UP',    hint:'Tilt your head UP',               color:'#22c55e', rot:'0deg'   },
+  DOWN:  { label:'DOWN',  hint:'Tilt your head DOWN',            color:'#f59e0b', rot:'180deg' },
+  LEFT:  { label:'LEFT',  hint:'Turn your head to your LEFT',   color:'#38bdf8', rot:'-90deg' },
+  RIGHT: { label:'RIGHT', hint:'Turn your head to your RIGHT',  color:'#a78bfa', rot:'90deg'  }
 };
+/* One bold block arrow (points up); rotated by CSS for each direction */
+const POSE_ARROW_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 3 L60 31 H43 V61 H21 V31 H4 Z"/></svg>';
 const POSE_YAW_DELTA   = 0.13;  /* min change in left/right ratio vs neutral */
 const POSE_PITCH_DELTA = 0.09;  /* min change in up/down ratio vs neutral   */
 const POSE_HOLD_FRAMES = 3;     /* pose must be seen in this many consecutive frames */
 const POSE_TIMEOUT_MS  = 7000;
+const POSE_SMOOTHING   = 0.6;   /* EMA weight of newest frame (reduces low-light jitter) */
 let lastPose = null;
 
 function pickRandomPose(){
@@ -1522,14 +1588,18 @@ function pickRandomPose(){
 function showPoseBanner(pose, failed){
   const el = document.getElementById('poseChallenge');
   if(!el) return;
-  document.getElementById('poseArrow').textContent = POSE_INFO[pose].arrow;
-  document.getElementById('poseText').textContent = POSE_INFO[pose].text;
-  el.classList.toggle('fail', !!failed);
-  el.style.display = 'block';
+  const info = POSE_INFO[pose];
+  el.className = 'pose-' + pose + (failed ? ' fail' : '');
+  el.style.setProperty('--pc', failed ? '#f43f5e' : info.color);
+  el.style.setProperty('--rot', info.rot);
+  document.getElementById('poseArrow').innerHTML = POSE_ARROW_SVG;
+  document.getElementById('poseLabel').textContent = info.label;
+  document.getElementById('poseText').textContent = info.hint;
+  el.style.display = 'flex';
 }
 function hidePoseBanner(){
   const el = document.getElementById('poseChallenge');
-  if(el){ el.style.display = 'none'; el.classList.remove('fail'); }
+  if(el){ el.style.display = 'none'; el.className = ''; }
 }
 
 /* yaw: nose position between the two jaw edges. pitch: nose position between eye-line and chin. */
@@ -1558,15 +1628,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function runPoseChallenge(video, overlay, box){
   const ctx = overlay.getContext('2d');
   const target = pickRandomPose();
-  const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.4 });
 
   /* Phase 1: capture neutral (straight-face) baseline */
-  setScanStatus('Seedha camera ki taraf dekhiye...', 'detecting');
-  let hidden = document.getElementById('poseChallenge'); if(hidden) hidden.style.display = 'none';
+  updateFlashlightState(video);
+  setScanStatus('Look straight at the camera...', 'detecting');
+  hidePoseBanner();
   const baseSamples = [];
   const baseEnd = Date.now() + 900;
   while(Date.now() < baseEnd && scanStream){
-    const d = await faceapi.detectSingleFace(video, opts).withFaceLandmarks();
+    const d = await faceapi.detectSingleFace(getDetectionInput(video), getPoseOpts()).withFaceLandmarks();
     if(d) baseSamples.push(getPoseMetrics(d.landmarks));
   }
   if(!scanStream) return { ok:false, reason:'stopped' };
@@ -1580,15 +1650,19 @@ async function runPoseChallenge(video, overlay, box){
   showPoseBanner(target, false);
   setScanStatus('Pose Challenge: ' + target, 'detecting');
   const end = Date.now() + POSE_TIMEOUT_MS;
-  let hold = 0;
+  let hold = 0, smooth = null;
   while(Date.now() < end && scanStream){
-    const d = await faceapi.detectSingleFace(video, opts).withFaceLandmarks();
+    updateFlashlightState(video);                       /* keeps screen-light / brightness fresh (throttled) */
+    const d = await faceapi.detectSingleFace(getDetectionInput(video), getPoseOpts()).withFaceLandmarks();
     ctx.clearRect(0,0,overlay.width,overlay.height);
     if(!d){ hold = 0; continue; }
     const b = d.detection.box;
     ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2; ctx.strokeRect(b.x, b.y, b.width, b.height);
 
-    const seen = classifyPose(getPoseMetrics(d.landmarks), base);
+    const m = getPoseMetrics(d.landmarks);
+    smooth = smooth ? { yaw: POSE_SMOOTHING*m.yaw + (1-POSE_SMOOTHING)*smooth.yaw,
+                        pitch: POSE_SMOOTHING*m.pitch + (1-POSE_SMOOTHING)*smooth.pitch } : m;
+    const seen = classifyPose(smooth, base);
     if(seen === target){
       if(++hold >= POSE_HOLD_FRAMES) return { ok:true, target, box:b };
     } else if(seen){
@@ -1610,7 +1684,8 @@ async function runFaceScan(){
 
   updateFlashlightState(video);
 
-  overlay.width = video.videoWidth; overlay.height = video.videoHeight;
+  if(overlay.width !== video.videoWidth) overlay.width = video.videoWidth;
+  if(overlay.height !== video.videoHeight) overlay.height = video.videoHeight;
   const ctx = overlay.getContext('2d');
   ctx.clearRect(0,0,overlay.width, overlay.height);
 
@@ -1619,11 +1694,12 @@ async function runFaceScan(){
 
   let det;
   try{
-    det = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 128, scoreThreshold: 0.4 }))
+    det = await faceapi.detectSingleFace(getDetectionInput(video), getScanOpts())
       .withFaceLandmarks().withFaceDescriptor();
   }catch(e){ isProcessingFrame = false; return; }
 
   if(!det){ 
+    scanGapMs = 220;
     guide.classList.remove('active');
     setScanStatus('Scanning face...', 'detecting'); 
     isProcessingFrame = false; 
@@ -1631,15 +1707,16 @@ async function runFaceScan(){
   }
 
   guide.classList.add('active');
+  scanGapMs = 100;
   const box = det.detection.box;
   ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2; ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-  const labeled = enrolled.map(e=> new faceapi.LabeledFaceDescriptors(e.id, [new Float32Array(e.descriptor)]));
-  const matcher = new faceapi.FaceMatcher(labeled, FACE_MATCH_THRESHOLD);
+  const matcher = getMatcher(enrolled);
   const best = matcher.findBestMatch(det.descriptor);
 
   if(best.label === 'unknown'){
     setScanStatus('Face not recognized', 'fail');
+    scanGapMs = 450;
     isProcessingFrame = false;
     return;
   }
@@ -1668,10 +1745,10 @@ async function runFaceScan(){
     if(why === 'stopped'){ hidePoseBanner(); isProcessingFrame = false; return; }
     ctx.clearRect(0,0,overlay.width,overlay.height);
     ctx.strokeStyle = '#f43f5e'; ctx.lineWidth = 3; ctx.strokeRect(box.x, box.y, box.width, box.height);
-    let msg = 'Pose challenge fail — dobara try karein';
-    if(why === 'wrong')   msg = 'Galat pose! ' + poseResult.target + ' chahiye tha — attendance nahi lagi';
-    if(why === 'timeout') msg = 'Time out — ' + poseResult.target + ' pose nahi mila';
-    if(why === 'noface')  msg = 'Chehra clear nahi dikha — dobara try karein';
+    let msg = 'Pose challenge failed — please try again';
+    if(why === 'wrong')   msg = 'Wrong pose! Required: ' + poseResult.target + ' — attendance not recorded';
+    if(why === 'timeout') msg = 'Timed out — ' + poseResult.target + ' pose not detected';
+    if(why === 'noface')  msg = lastAvgBrightness < LOWLIGHT_ENHANCE_BELOW ? 'Lighting is too low — tap the bulb button or improve the lighting' : 'Face not clearly visible — please try again';
     setScanStatus(msg, 'fail');
     toast(msg, 'err');
     if(poseResult && poseResult.target){ showPoseBanner(poseResult.target, true); }
