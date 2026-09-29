@@ -1,0 +1,159 @@
+<!-- PASTE just before </body> (after the main </script>). Set backend URL via window.FACE_BACKEND_URL / localStorage 'face_backend_url'. -->
+<script>
+/* ===== PYTHON/OPENCV BACKEND BRIDGE (falls back to built-in face-api.js when backend is unreachable) ===== */
+(() => {
+  'use strict';
+  const CFG = {
+    url: (window.FACE_BACKEND_URL || localStorage.getItem('face_backend_url') || 'http://localhost:8000').replace(/\/$/, ''),
+    key: window.FACE_API_KEY || localStorage.getItem('face_api_key') || '',
+    width: 480, quality: 0.6, gapMs: 80,
+    pruneSync: window.FACE_PRUNE_SYNC === true          /* opt-in: delete server embeddings for employees removed locally */
+  };
+  const backend = { ok: false };
+
+  async function api(path, opts = {}, timeout = 4000) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), timeout);
+    try {
+      const r = await fetch(CFG.url + path, {
+        method: opts.method || 'GET',
+        headers: { 'Content-Type': 'application/json', ...(CFG.key ? { 'X-API-Key': CFG.key } : {}) },
+        body: opts.body, signal: ctl.signal
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.detail || ('HTTP ' + r.status));
+      return j;
+    } finally { clearTimeout(t); }
+  }
+
+  async function ping() {
+    try {
+      const h = await api('/api/health', {}, 2500);
+      backend.ok = !!h.ok;
+      const el = document.getElementById('modelStatus');
+      if (backend.ok && el) { el.textContent = 'Python Face Engine ✓'; el.style.color = 'var(--ok)'; }
+    } catch (e) { backend.ok = false; }
+  }
+  ping(); setInterval(ping, 20000);
+
+  const cap = document.createElement('canvas'), cctx = cap.getContext('2d');
+  function grab(src, w = CFG.width, q = CFG.quality) {
+    const sw = src.videoWidth || src.naturalWidth || src.width, sh = src.videoHeight || src.naturalHeight || src.height;
+    const s = Math.min(1, w / sw);
+    cap.width = Math.round(sw * s); cap.height = Math.round(sh * s);
+    cctx.drawImage(src, 0, 0, cap.width, cap.height);
+    return cap.toDataURL('image/jpeg', q);
+  }
+
+  /* ---------- LIVE SCAN (server: low-light enhance -> detect -> identify -> random pose challenge) ---------- */
+  const _origRunFaceScan = window.runFaceScan;
+
+  window.runFaceScan = async function () {
+    if (!backend.ok) return _origRunFaceScan();
+    isProcessingFrame = true;
+    const video = document.getElementById('video');
+    const overlay = document.getElementById('overlay');
+    const guide = document.getElementById('camGuide');
+    if (!video.videoWidth) { isProcessingFrame = false; return; }
+    if (!employees.some(e => e.descriptor)) { setScanStatus('No face records enrolled', 'fail'); isProcessingFrame = false; return; }
+
+    if (overlay.width !== video.videoWidth) overlay.width = video.videoWidth;
+    if (overlay.height !== video.videoHeight) overlay.height = video.videoHeight;
+    const ctx = overlay.getContext('2d');
+    const draw = (box, color, lw = 2) => {
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      if (!box) return;
+      ctx.strokeStyle = color; ctx.lineWidth = lw;
+      ctx.strokeRect(box[0] * overlay.width, box[1] * overlay.height, box[2] * overlay.width, box[3] * overlay.height);
+    };
+
+    let sid, res = null, bannerFor = null;
+    try { sid = (await api('/api/verify/start', { method: 'POST', body: '{}' })).session_id; }
+    catch (e) { backend.ok = false; isProcessingFrame = false; return; }
+
+    try {
+      while (scanStream) {
+        updateFlashlightState(video);
+        res = await api('/api/verify/frame', { method: 'POST', body: JSON.stringify({ session_id: sid, image: grab(video) }) }, 5000);
+        if (res.stage !== 'search') isVerifyingLiveness = true;
+        guide.classList.toggle('active', !!res.box);
+        draw(res.box, '#38bdf8');
+
+        if (res.state === 'running') {
+          if (res.stage === 'challenge' && res.pose) {
+            if (bannerFor !== res.pose) { showPoseBanner(res.pose, false); bannerFor = res.pose; }
+            setScanStatus('Pose Challenge: ' + res.pose, 'detecting');
+          } else {
+            setScanStatus(res.message, 'detecting');
+          }
+          await sleep(CFG.gapMs);
+          continue;
+        }
+        break;
+      }
+    } catch (e) {
+      backend.ok = false;                                   /* next scan falls back to face-api */
+      res = null;
+    }
+
+    isVerifyingLiveness = false;
+    if (!scanStream || !res) { hidePoseBanner(); isProcessingFrame = false; return; }
+
+    if (res.state === 'idle') {
+      guide.classList.remove('active'); draw(null);
+      scanGapMs = 220; setScanStatus('Scanning face...', 'detecting');
+    } else if (res.state === 'unknown') {
+      draw(res.box, '#f43f5e', 3);
+      setScanStatus(res.message, 'fail'); scanGapMs = 450;
+    } else if (res.state === 'passed') {
+      hidePoseBanner(); draw(res.box, '#10b981', 3);
+      const emp = employees.find(e => e.id === res.employee_id);
+      if (emp) { setScanStatus('Verified: ' + emp.name, 'success'); logAttendance(emp, 'Face Recognition'); }
+      else { setScanStatus('Employee record missing on this device', 'fail'); toast('Employee ' + res.employee_id + ' not found locally', 'err'); }
+    } else {
+      draw(res.box, '#f43f5e', 3);
+      setScanStatus(res.message, 'fail'); toast(res.message, 'err');
+      if (res.pose) showPoseBanner(res.pose, true);
+      await sleep(1500); hidePoseBanner();
+    }
+    isProcessingFrame = false;
+  };
+
+  /* ---------- ENROLLMENT (embedding computed & stored on server) ---------- */
+  document.getElementById('captureFaceBtn').addEventListener('click', async (e) => {
+    if (!backend.ok) return;                                /* let the original face-api handler run */
+    e.stopImmediatePropagation();
+    const statusEl = document.getElementById('regFaceStatus');
+    const id = document.getElementById('fEmpId').value.trim();
+    if (!id) { statusEl.textContent = 'Enter Employee ID first'; statusEl.className = 'enroll-status err'; return; }
+    const video = document.getElementById('regVideo'), preview = document.getElementById('galleryPreview');
+    const fromGallery = currentEnrollSource === 'gallery';
+    statusEl.textContent = 'Enrolling on server…'; statusEl.className = 'enroll-status';
+    try {
+      const images = [];
+      if (fromGallery) images.push(grab(preview, 640, 0.85));
+      else for (let i = 0; i < 5; i++) { images.push(grab(video, 640, 0.85)); await sleep(180); }
+      const r = await api('/api/enroll', { method: 'POST', body: JSON.stringify({ employee_id: id, images }) }, 20000);
+      capturedDescriptor = new Array(128).fill(0);          /* placeholder flag; the real embedding lives on the server */
+      capturedPhoto = fromGallery ? preview.src : snapshotToDataUrl(video);
+      statusEl.textContent = 'Face captured ✓ (' + r.samples + ' sample' + (r.samples > 1 ? 's' : '') + ')';
+      statusEl.className = 'enroll-status ok';
+      updateEnrollBadges();
+    } catch (err) {
+      statusEl.textContent = err.name === 'AbortError' ? 'Server timeout' : err.message;
+      statusEl.className = 'enroll-status err';
+    }
+  }, true);
+
+  /* ---------- optional: keep server embeddings in sync with local employee list ---------- */
+  if (CFG.pruneSync) {
+    const _re = window.renderEmployees; let tm = null;
+    window.renderEmployees = function () {
+      const r = _re.apply(this, arguments);
+      clearTimeout(tm);
+      tm = setTimeout(() => { if (backend.ok && employees.length) api('/api/prune', { method: 'POST', body: JSON.stringify({ keep: employees.map(e => e.id) }) }).catch(() => {}); }, 1500);
+      return r;
+    };
+  }
+})();
+</script>
