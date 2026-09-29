@@ -1,8 +1,12 @@
-opencv-python-headless>=4.9.0
+opencv-contrib-python-headless>=4.9,<5
 numpy>=1.24
 fastapi>=0.110
 uvicorn[standard]>=0.29
 pydantic>=2.5
 redis>=5.0
 psycopg2-binary>=2.9
-mediapipe==0.10.35
+# mediapipe deps (mediapipe itself is installed with --no-deps in the build command, see render.yaml)
+absl-py~=2.3
+flatbuffers~=25.9
+matplotlib
+certifi

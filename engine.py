@@ -16,6 +16,8 @@ MODEL_DIR = Path(os.getenv("FACE_MODEL_DIR", Path(__file__).parent / "models"))
 DET_FILES = ["face_detection_yunet_2023mar_int8.onnx", "face_detection_yunet_2023mar.onnx"]
 REC_FILES = ["face_recognition_sface_2021dec_int8.onnx", "face_recognition_sface_2021dec.onnx"]
 
+HAND_MODEL = MODEL_DIR / "hand_landmarker.task"   # MediaPipe >= 0.10.30 (no mp.solutions) needs this file
+
 MAX_W = 640
 LOW_LIGHT_LUMA = float(os.getenv("LOW_LIGHT_LUMA", 105))   # enhance below this mean brightness (0-255)
 TARGET_LUMA = 125.0
@@ -88,6 +90,7 @@ class Engine:
         self.recognizer = None
         self.det_name = self.rec_name = ""
         self.hands = None
+        self._hands_api = ""
         self.hlock = threading.Lock()
         cv2.setNumThreads(int(os.getenv("CV_THREADS", "2")))
 
@@ -113,15 +116,29 @@ class Engine:
         if self.detector is None or self.recognizer is None:
             raise RuntimeError("Models missing/unreadable in %s - run: python download_models.py" % MODEL_DIR)
         if mp is not None and self.hands is None:
-            try:
-                self.hands = mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=1, model_complexity=0,
-                                                      min_detection_confidence=0.6)
-            except Exception as e:  # noqa: BLE001
-                print("[engine] MediaPipe Hands unavailable, finger challenge disabled:", e)
-                self.hands = None
+            self.hands, self._hands_api = self._init_hands()
         warm = np.zeros((240, 320, 3), np.uint8)   # warm-up so first real request is fast
         self.detect(warm, False)
         return self
+
+    def _init_hands(self):
+        """Tasks API (mediapipe >= 0.10.30) when hand_landmarker.task exists, legacy mp.solutions only if present."""
+        try:
+            if HAND_MODEL.exists():
+                from mediapipe.tasks.python import BaseOptions, vision
+                opts = vision.HandLandmarkerOptions(
+                    base_options=BaseOptions(model_asset_path=str(HAND_MODEL)),
+                    running_mode=vision.RunningMode.IMAGE, num_hands=1,
+                    min_hand_detection_confidence=0.6, min_hand_presence_confidence=0.5, min_tracking_confidence=0.5)
+                print("[engine] MediaPipe HandLandmarker (tasks) ready")
+                return vision.HandLandmarker.create_from_options(opts), "tasks"
+            if hasattr(mp, "solutions"):
+                return mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=1, model_complexity=0,
+                                                min_detection_confidence=0.6), "legacy"
+            print("[engine] MediaPipe Hands unavailable, finger challenge disabled: %s missing - run python download_models.py" % HAND_MODEL)
+        except Exception as e:  # noqa: BLE001
+            print("[engine] MediaPipe Hands unavailable, finger challenge disabled:", e)
+        return None, ""
 
     @property
     def hands_ready(self) -> bool:
@@ -132,11 +149,17 @@ class Engine:
         if self.hands is None:
             return None, None
         h, w = bgr.shape[:2]
+        rgb = np.ascontiguousarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
         with self.hlock:
-            res = self.hands.process(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
-        if not res.multi_hand_landmarks:
+            if self._hands_api == "tasks":
+                res = self.hands.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
+                lms = res.hand_landmarks[0] if res.hand_landmarks else None
+            else:
+                res = self.hands.process(rgb)
+                lms = res.multi_hand_landmarks[0].landmark if res.multi_hand_landmarks else None
+        if lms is None:
             return None, None
-        pts = np.array([[p.x, p.y] for p in res.multi_hand_landmarks[0].landmark], np.float32)
+        pts = np.array([[p.x, p.y] for p in lms], np.float32)
         x0, y0 = pts.min(axis=0)
         x1, y1 = pts.max(axis=0)
         if max(x1 - x0, y1 - y0) < MIN_HAND_FRAC:
