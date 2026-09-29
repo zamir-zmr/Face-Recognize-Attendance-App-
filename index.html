@@ -2107,13 +2107,65 @@ renderDashboard();
     } finally { clearTimeout(t); }
   }
 
+  const statusEl = () => document.getElementById('modelStatus');
+  let syncing = false; const syncFailed = new Set();
+
   async function ping() {
     try {
       const h = await api('/api/health', {}, 2500);
       backend.ok = !!h.ok;
-      const el = document.getElementById('modelStatus');
-      if (backend.ok && el) { el.textContent = 'Python Face Engine ✓'; el.style.color = 'var(--ok)'; }
+      const el = statusEl();
+      if (backend.ok && el && !syncing) { el.textContent = 'Python Face Engine ✓'; el.style.color = 'var(--ok)'; }
+      /* server lost its embeddings (restart / ephemeral disk) or never had them -> rebuild from stored photos */
+      if (backend.ok && h.enrolled < employees.filter(e => e.photo && !syncFailed.has(e.id)).length) syncMissing();
     } catch (e) { backend.ok = false; }
+  }
+
+  /* Legacy face-api descriptors are not portable to the server's SFace model, so re-derive from the saved photos. */
+  function photoToFrames(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => {
+        const w = im.naturalWidth, h = im.naturalHeight, out = [];
+        /* snapshotToDataUrl() squashed the video into 160x160 -> restore 4:3 and 16:9 geometry and upscale */
+        const sizes = (w === h && w <= 200) ? [[320, 240], [356, 200]] : [[Math.min(w, 640), Math.round(h * Math.min(w, 640) / w)]];
+        for (const [tw, th] of sizes) {
+          const c = document.createElement('canvas'); c.width = tw; c.height = th;
+          const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(im, 0, 0, tw, th);
+          out.push(c.toDataURL('image/jpeg', 0.92));
+        }
+        resolve(out);
+      };
+      im.onerror = () => reject(new Error('bad photo'));
+      im.src = dataUrl;
+    });
+  }
+
+  async function syncMissing() {
+    if (!backend.ok || syncing) return;
+    syncing = true;
+    const el = statusEl();
+    try {
+      const have = new Set((await api('/api/enrolled')).ids);
+      const todo = employees.filter(e => e.photo && !have.has(e.id) && !syncFailed.has(e.id));
+      let ok = 0;
+      for (let i = 0; i < todo.length; i++) {
+        if (el) { el.textContent = 'Syncing faces ' + (i + 1) + '/' + todo.length + '…'; el.style.color = ''; }
+        try {
+          const images = await photoToFrames(todo[i].photo);
+          await api('/api/enroll', { method: 'POST', body: JSON.stringify({ employee_id: todo[i].id, images, force: true, relaxed: true }) }, 20000);
+          ok++;
+        } catch (err) { syncFailed.add(todo[i].id); console.warn('face sync failed', todo[i].id, err.message); }
+      }
+      if (todo.length) {
+        const bad = todo.length - ok;
+        toast(ok + ' face record' + (ok === 1 ? '' : 's') + ' synced to server' + (bad ? ' · ' + bad + ' need re-enrollment (Edit → capture)' : ''), bad ? 'err' : 'ok');
+      }
+    } catch (e) { console.warn('sync error', e.message); }
+    finally {
+      syncing = false;
+      if (el && backend.ok) { el.textContent = 'Python Face Engine ✓'; el.style.color = 'var(--ok)'; }
+    }
   }
   ping(); setInterval(ping, 20000);
 
@@ -2185,7 +2237,8 @@ renderDashboard();
       scanGapMs = 220; setScanStatus('Scanning face...', 'detecting');
     } else if (res.state === 'unknown') {
       draw(res.box, '#f43f5e', 3);
-      setScanStatus(res.message, 'fail'); scanGapMs = 450;
+      if (res.message === 'No face records enrolled') { setScanStatus('Syncing face records to server…', 'detecting'); scanGapMs = 2000; syncMissing(); }
+      else { setScanStatus(res.message, 'fail'); scanGapMs = 450; }
     } else if (res.state === 'passed') {
       hidePoseBanner(); draw(res.box, '#10b981', 3);
       const emp = employees.find(e => e.id === res.employee_id);

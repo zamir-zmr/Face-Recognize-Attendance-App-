@@ -72,6 +72,7 @@ class EnrollBody(BaseModel):
     employee_id: str
     images: list[str]
     force: bool = False
+    relaxed: bool = False     # legacy photo sync: accept small / low-res photos
 
 
 class FrameBody(BaseModel):
@@ -116,7 +117,8 @@ def enroll(body: EnrollBody):
         if not faces:
             continue
         f = faces[0]
-        if f[14] < ENROLL_MIN_SCORE or f[2] < 0.15 * frame.shape[1]:
+        min_score, min_frac = (0.5, 0.08) if body.relaxed else (ENROLL_MIN_SCORE, 0.15)
+        if f[14] < min_score or f[2] < min_frac * frame.shape[1]:
             continue
         if len(faces) > 1 and faces[1][2] * faces[1][3] > 0.5 * f[2] * f[3]:
             continue
