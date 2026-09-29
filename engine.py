@@ -51,14 +51,21 @@ def prepare(bgr: np.ndarray):
 
 # ---------- pose (from YuNet's 5 landmarks) ----------
 def pose_metrics(face: np.ndarray):
-    """yaw: nose offset from eye-midpoint / eye distance. pitch: nose position between eye-line and mouth-line."""
+    """Roll-compensated pose. Landmarks are rotated so the eye line is horizontal (head tilt / phone tilt no longer
+    leaks into yaw/pitch). yaw: nose offset from eye-midpoint / eye distance. pitch: nose depth between eye-line and mouth-line."""
     rx, ry, lx, ly, nx, ny, rmx, rmy, lmx, lmy = [float(v) for v in face[4:14]]
-    eye_mx, eye_my = (rx + lx) / 2, (ry + ly) / 2
-    mouth_my = (rmy + lmy) / 2
-    eye_d = max(1.0, abs(lx - rx))
-    yaw = (nx - eye_mx) / eye_d
-    pitch = (ny - eye_my) / max(1.0, mouth_my - eye_my)
-    return yaw, pitch
+    ang = math.atan2(ly - ry, lx - rx)
+    c, s = math.cos(-ang), math.sin(-ang)
+    ex, ey = (rx + lx) / 2, (ry + ly) / 2
+
+    def rot(x, y):
+        dx, dy = x - ex, y - ey
+        return dx * c - dy * s, dx * s + dy * c
+
+    n_x, n_y = rot(nx, ny)
+    _, m_y = rot((rmx + lmx) / 2, (rmy + lmy) / 2)
+    eye_d = max(1.0, math.hypot(lx - rx, ly - ry))
+    return n_x / eye_d, n_y / max(1.0, m_y)
 
 
 # ---------- engine ----------

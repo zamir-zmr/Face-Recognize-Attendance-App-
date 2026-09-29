@@ -16,12 +16,18 @@ MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", 0.40))    # SFace cosine (0
 POSE_MATCH_THRESHOLD = float(os.getenv("POSE_MATCH_THRESHOLD", 0.32))  # relaxed: turned head lowers similarity
 MATCH_MARGIN = 0.03
 IDENT_FRAMES = 2
-BASE_FRAMES = 5
+BASE_FRAMES = 4
 MIN_FACE_FRAC = 0.16            # face width / frame width
-YAW_DELTA = float(os.getenv("POSE_YAW_DELTA", 0.20))
-PITCH_DELTA = float(os.getenv("POSE_PITCH_DELTA", 0.13))
-HOLD_FRAMES = 3
-SMOOTH = 0.6
+YAW_DELTA = float(os.getenv("POSE_YAW_DELTA", 0.17))
+PITCH_UP = float(os.getenv("POSE_PITCH_UP", 0.075))      # separate thresholds: up/down need less movement than left/right
+PITCH_DOWN = float(os.getenv("POSE_PITCH_DOWN", 0.085))
+HOLD_FRAMES = 2
+HOLD_RELEASE = 0.75             # hysteresis: once in the target zone, only 75% of the threshold is needed to stay
+WRONG_STRENGTH = 1.35           # a wrong direction must clearly exceed its threshold...
+WRONG_FRAMES = 3                # ...for this many frames before failing
+CROSS_TALK = 1.6                # off-axis motion may be at most 1.6x the target-axis motion
+SMOOTH = 0.7                    # EMA weight of the newest sample (after 3-sample median)
+BASE_SPREAD = 0.08              # baseline frames must be this steady (yaw & pitch range)
 POSE_TIMEOUT = float(os.getenv("POSE_TIMEOUT_S", 8))
 SEARCH_TIMEOUT = 3.0
 NOFACE_FAIL_S = 2.5
@@ -50,6 +56,8 @@ class Session:
     target: str | None = None
     deadline: float = 0.0
     hold: int = 0
+    wrong: int = 0
+    hist: list = field(default_factory=list)
     smooth: tuple | None = None
     last_face_t: float = field(default_factory=time.time)
     done: bool = False
@@ -124,14 +132,15 @@ def advance(sid: str, bgr: np.ndarray) -> dict | None:
     return res
 
 
-def _classify(m, base):
+def _axes(m, base):
+    """Signed movement in threshold units: |v| >= 1 means the pose threshold is reached."""
     dy, dp = m[0] - base[0], m[1] - base[1]
-    yaw_hit, pit_hit = abs(dy) >= YAW_DELTA, abs(dp) >= PITCH_DELTA
-    if yaw_hit and (not pit_hit or abs(dy) / YAW_DELTA >= abs(dp) / PITCH_DELTA):
-        return "LEFT" if dy > 0 else "RIGHT"   # raw (un-mirrored) frame: nose to image-right = user's LEFT
-    if pit_hit:
-        return "DOWN" if dp > 0 else "UP"
-    return None
+    return dy / YAW_DELTA, dp / (PITCH_DOWN if dp > 0 else PITCH_UP)
+
+
+def _toward(pose, yv, pv):
+    # raw (un-mirrored) frame: nose to image-right = user's LEFT; pitch grows when looking DOWN
+    return {"LEFT": yv, "RIGHT": -yv, "DOWN": pv, "UP": -pv}[pose]
 
 
 def _crop(gray, roi):
@@ -225,26 +234,35 @@ def step(s: Session, bgr: np.ndarray) -> dict:
             s.diffs.append(float(np.abs(crop - s.prev_crop).mean()))
         s.prev_crop = crop
         s.base.append((yaw, pitch))
+        s.base = s.base[-BASE_FRAMES:]
         if len(s.base) < BASE_FRAMES:
             return _resp(s, "running", "Look straight at the camera...", face, shape, **info)
-        if float(np.mean(s.diffs)) < MOTION_MIN:
+        ys, ps = [b[0] for b in s.base], [b[1] for b in s.base]
+        if max(ys) - min(ys) > BASE_SPREAD or max(ps) - min(ps) > BASE_SPREAD:   # still moving -> keep collecting
+            return _resp(s, "running", "Hold still, look straight...", face, shape, **info)
+        if float(np.mean(s.diffs[-BASE_FRAMES:])) < MOTION_MIN:
             return _finish(s, "failed", "Spoof suspected (static image/frozen video)", face, shape, reason="spoof", **info)
         s.baseline = (float(np.median([b[0] for b in s.base])), float(np.median([b[1] for b in s.base])))
         pool = [p for p in POSES if p != _last_pose(s.emp)]
         s.target = secrets.choice(pool)
         _set_last_pose(s.emp, s.target)
-        s.stage, s.deadline, s.hold, s.smooth = "challenge", now + POSE_TIMEOUT, 0, None
+        s.stage, s.deadline, s.hold, s.wrong, s.smooth, s.hist = "challenge", now + POSE_TIMEOUT, 0, 0, None, []
         return _resp(s, "running", "Pose Challenge: " + s.target, face, shape, **info)
 
     # ---- challenge ----
     if now > s.deadline:
         return _finish(s, "failed", "Timed out - %s pose not detected" % s.target, face, shape, reason="timeout", **info)
-    m = (yaw, pitch)
+    s.hist = (s.hist + [(yaw, pitch)])[-3:]                       # median of last 3 kills landmark spikes
+    m = (float(np.median([h[0] for h in s.hist])), float(np.median([h[1] for h in s.hist])))
     s.smooth = m if s.smooth is None else (SMOOTH * m[0] + (1 - SMOOTH) * s.smooth[0],
                                            SMOOTH * m[1] + (1 - SMOOTH) * s.smooth[1])
-    seen = _classify(s.smooth, s.baseline)
-    if seen == s.target:
+    yv, pv = _axes(s.smooth, s.baseline)
+    tv = _toward(s.target, yv, pv)
+    off = abs(pv) if s.target in ("LEFT", "RIGHT") else abs(yv)
+    need = HOLD_RELEASE if s.hold else 1.0
+    if tv >= need and off <= max(1.0, CROSS_TALK * tv):
         s.hold += 1
+        s.wrong = 0
         if s.hold >= HOLD_FRAMES:
             vec = engine.embed(frame, face)   # same person must finish the challenge
             sim = store.similarity(s.emp, vec)
@@ -253,8 +271,11 @@ def step(s: Session, bgr: np.ndarray) -> dict:
             s.score = max(s.score, sim)
             s.stage = "passed"
             return _finish(s, "passed", "Verified", face, shape, **info)
-    elif seen:
-        return _finish(s, "failed", "Wrong pose! Required: %s" % s.target, face, shape, reason="wrong", **info)
     else:
         s.hold = 0
+        wrong_dir = any(_toward(p, yv, pv) >= WRONG_STRENGTH and _toward(p, yv, pv) > 1.2 * max(tv, 0)
+                        for p in POSES if p != s.target)
+        s.wrong = s.wrong + 1 if wrong_dir else max(0, s.wrong - 1)
+        if s.wrong >= WRONG_FRAMES:
+            return _finish(s, "failed", "Wrong pose! Required: %s" % s.target, face, shape, reason="wrong", **info)
     return _resp(s, "running", "Pose Challenge: " + s.target, face, shape, **info)
