@@ -3,12 +3,14 @@ Env (optional): FACE_API_KEY, CORS_ORIGINS="https://your-app.vercel.app,http://l
 import base64
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import cv2
 import numpy as np
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 import download_models
@@ -81,9 +83,20 @@ class PruneBody(BaseModel):
     keep: list[str]
 
 
+INDEX = Path(__file__).parent / "index.html"
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    if INDEX.exists():
+        return FileResponse(INDEX, media_type="text/html")
+    return {"service": "face-backend", "health": "/api/health", "docs": "/docs"}
+
+
 @app.get("/api/health")
 def health():
-    return {"ok": engine.ready, "detector": engine.det_name, "recognizer": engine.rec_name, "enrolled": len(store)}
+    return {"ok": engine.ready, "detector": engine.det_name, "recognizer": engine.rec_name,
+            "enrolled": len(store), "sessions": sessions.BACKEND, "store": store.backend}
 
 
 @app.get("/api/enrolled", dependencies=[Depends(auth)])
@@ -142,7 +155,7 @@ def verify_start():
 
 @app.post("/api/verify/frame", dependencies=[Depends(auth)])
 def verify_frame(body: FrameBody):
-    s = sessions.get(body.session_id)
-    if s is None:
+    res = sessions.advance(body.session_id, decode(body.image))
+    if res is None:
         raise HTTPException(404, "Unknown or expired session")
-    return sessions.step(s, decode(body.image))
+    return res

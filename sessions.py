@@ -1,5 +1,6 @@
 """Verification flow: search -> identify -> baseline -> random pose challenge -> passed/failed. Challenge is chosen server-side."""
 import os
+import pickle
 import secrets
 import threading
 import time
@@ -29,14 +30,14 @@ MOTION_MIN = 0.45               # mean abs pixel diff (0-255) of fixed face ROI 
 UNKNOWN_LIMIT = 5
 POSES = ("UP", "DOWN", "LEFT", "RIGHT")
 
-_last_pose: dict[str, str] = {}
 _lock = threading.Lock()
+SESSION_TTL = 90
 
 
 @dataclass
 class Session:
     sid: str = field(default_factory=lambda: secrets.token_urlsafe(16))
-    started: float = field(default_factory=time.monotonic)
+    started: float = field(default_factory=time.time)
     stage: str = "search"
     emp: str | None = None
     ident_hits: int = 0
@@ -50,29 +51,77 @@ class Session:
     deadline: float = 0.0
     hold: int = 0
     smooth: tuple | None = None
-    last_face_t: float = field(default_factory=time.monotonic)
+    last_face_t: float = field(default_factory=time.time)
     done: bool = False
     result: dict | None = None
     score: float = 0.0
 
 
-_sessions: dict[str, Session] = {}
+# ---------- session storage: Redis (multi-worker safe) when REDIS_URL is set, else in-memory ----------
+_redis = None
+if os.getenv("REDIS_URL"):
+    try:
+        import redis
+        _redis = redis.Redis.from_url(os.environ["REDIS_URL"], socket_timeout=2, socket_connect_timeout=3)
+        _redis.ping()
+    except Exception as e:  # noqa: BLE001
+        print("[sessions] Redis unavailable, using in-memory:", e)
+        _redis = None
+BACKEND = "redis" if _redis else "memory"
+
+_mem: dict[str, Session] = {}
+_mem_pose: dict[str, str] = {}
 
 
-def start() -> Session:
-    now = time.monotonic()
-    with _lock:
-        for k in [k for k, s in _sessions.items() if now - s.started > 90]:
-            del _sessions[k]
-        if len(_sessions) > 300:
-            _sessions.pop(next(iter(_sessions)))
-        s = Session()
-        _sessions[s.sid] = s
-    return s
+def _save(s: Session):
+    if _redis:
+        _redis.setex("face:sess:" + s.sid, SESSION_TTL, pickle.dumps(s, protocol=4))
+    else:
+        _mem[s.sid] = s
 
 
 def get(sid: str) -> Session | None:
-    return _sessions.get(sid)
+    if _redis:
+        raw = _redis.get("face:sess:" + sid)
+        return pickle.loads(raw) if raw else None
+    return _mem.get(sid)
+
+
+def start() -> Session:
+    if not _redis:
+        now = time.time()
+        with _lock:
+            for k in [k for k, v in _mem.items() if now - v.started > SESSION_TTL]:
+                del _mem[k]
+            if len(_mem) > 300:
+                _mem.pop(next(iter(_mem)))
+    s = Session()
+    _save(s)
+    return s
+
+
+def _last_pose(emp: str) -> str | None:
+    if _redis:
+        v = _redis.hget("face:lastpose", emp)
+        return v.decode() if v else None
+    return _mem_pose.get(emp)
+
+
+def _set_last_pose(emp: str, pose: str):
+    if _redis:
+        _redis.hset("face:lastpose", emp, pose)
+    else:
+        _mem_pose[emp] = pose
+
+
+def advance(sid: str, bgr: np.ndarray) -> dict | None:
+    """Load session -> run one step -> persist. None if session unknown/expired."""
+    s = get(sid)
+    if s is None:
+        return None
+    res = step(s, bgr)
+    _save(s)
+    return res
 
 
 def _classify(m, base):
@@ -111,7 +160,7 @@ def _finish(s: Session, state: str, message: str, face=None, shape=None, **extra
 def step(s: Session, bgr: np.ndarray) -> dict:
     if s.done and s.result:
         return s.result
-    now = time.monotonic()
+    now = time.time()
     if now - s.started > HARD_TIMEOUT:
         return _finish(s, "failed", "Session timed out", reason="timeout")
 
@@ -181,10 +230,9 @@ def step(s: Session, bgr: np.ndarray) -> dict:
         if float(np.mean(s.diffs)) < MOTION_MIN:
             return _finish(s, "failed", "Spoof suspected (static image/frozen video)", face, shape, reason="spoof", **info)
         s.baseline = (float(np.median([b[0] for b in s.base])), float(np.median([b[1] for b in s.base])))
-        with _lock:
-            pool = [p for p in POSES if p != _last_pose.get(s.emp)]
-            s.target = secrets.choice(pool)
-            _last_pose[s.emp] = s.target
+        pool = [p for p in POSES if p != _last_pose(s.emp)]
+        s.target = secrets.choice(pool)
+        _set_last_pose(s.emp, s.target)
         s.stage, s.deadline, s.hold, s.smooth = "challenge", now + POSE_TIMEOUT, 0, None
         return _resp(s, "running", "Pose Challenge: " + s.target, face, shape, **info)
 
