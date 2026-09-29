@@ -3,7 +3,7 @@ services:
     name: face-backend
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt && pip install --no-deps mediapipe==0.10.35 && python download_models.py
+    buildCommand: pip install -r requirements.txt && pip install --no-deps mediapipe==0.10.14 && python download_models.py
     startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     envVars:
@@ -36,3 +36,4 @@ services:
 databases:
   - name: face-db
     plan: free                    # Render free Postgres expires after 30 days -> use a paid plan for real deployment
+    
