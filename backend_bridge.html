@@ -46,6 +46,42 @@
     return cap.toDataURL('image/jpeg', q);
   }
 
+  /* ---------- FINGER CHALLENGE UI (self-contained: light card + animated tick per matched finger) ---------- */
+  const st = document.createElement('style');
+  st.textContent = `
+  #fingerChallenge{position:fixed;left:50%;top:14%;transform:translate(-50%,-12px);z-index:9999;min-width:230px;padding:14px 20px 16px;
+    background:#fff;border-radius:18px;box-shadow:0 10px 30px rgba(37,99,235,.18);text-align:center;font-family:inherit;opacity:0;
+    pointer-events:none;transition:opacity .25s,transform .25s}
+  #fingerChallenge.show{opacity:1;transform:translate(-50%,0)}
+  #fingerChallenge .fc-title{font-size:13px;font-weight:600;color:#2563eb;letter-spacing:.04em;text-transform:uppercase}
+  #fingerChallenge .fc-num{font-size:52px;font-weight:800;line-height:1.1;color:#0f172a}
+  #fingerChallenge .fc-ticks{display:flex;gap:8px;justify-content:center;margin-top:8px}
+  #fingerChallenge .fc-slot{width:34px;height:34px;border-radius:50%;background:#eff6ff;border:2px solid #bfdbfe;display:flex;
+    align-items:center;justify-content:center;transition:background .25s,border-color .25s,transform .25s}
+  #fingerChallenge .fc-slot svg{width:20px;height:20px}
+  #fingerChallenge .fc-slot path{fill:none;stroke:#fff;stroke-width:3.5;stroke-linecap:round;stroke-linejoin:round;
+    stroke-dasharray:24;stroke-dashoffset:24;transition:stroke-dashoffset .35s ease .1s}
+  #fingerChallenge .fc-slot.on{background:#2563eb;border-color:#2563eb;transform:scale(1.12)}
+  #fingerChallenge .fc-slot.on path{stroke-dashoffset:0}`;
+  document.head.appendChild(st);
+  const fc = document.createElement('div');
+  fc.id = 'fingerChallenge';
+  fc.innerHTML = '<div class="fc-title"></div><div class="fc-num"></div><div class="fc-ticks"></div>';
+  document.body.appendChild(fc);
+  let fcN = 0;
+  function showFinger(n, ticks) {
+    if (fcN !== n) {
+      fcN = n;
+      fc.querySelector('.fc-title').textContent = 'Show ' + (n === 1 ? '1 finger' : n + ' fingers');
+      fc.querySelector('.fc-num').textContent = n;
+      fc.querySelector('.fc-ticks').innerHTML = Array.from({ length: n }, () =>
+        '<div class="fc-slot"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>').join('');
+    }
+    fc.querySelectorAll('.fc-slot').forEach((el, i) => setTimeout(() => el.classList.toggle('on', i < ticks), i * 90));
+    fc.classList.add('show');
+  }
+  function hideFinger() { fc.classList.remove('show'); fcN = 0; }
+
   /* ---------- LIVE SCAN (server: low-light enhance -> detect -> identify -> random pose challenge) ---------- */
   const _origRunFaceScan = window.runFaceScan;
 
@@ -68,7 +104,7 @@
       ctx.strokeRect(box[0] * overlay.width, box[1] * overlay.height, box[2] * overlay.width, box[3] * overlay.height);
     };
 
-    let sid, res = null, bannerFor = null;
+    let sid, res = null, bannerFor = null, tickShown = false;
     try { sid = (await api('/api/verify/start', { method: 'POST', body: '{}' })).session_id; }
     catch (e) { backend.ok = false; isProcessingFrame = false; return; }
 
@@ -79,9 +115,24 @@
         if (res.stage !== 'search') isVerifyingLiveness = true;
         guide.classList.toggle('active', !!res.box);
         draw(res.box, '#38bdf8');
+        if (res.hand) {                                       /* amber hand box */
+          ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2;
+          ctx.strokeRect(res.hand[0] * overlay.width, res.hand[1] * overlay.height, res.hand[2] * overlay.width, res.hand[3] * overlay.height);
+        }
+        const fin = (res.completed || []).find(c => c.kind === 'fingers');
+        if (fin && !tickShown) {                              /* finger step done: one tick per finger, then continue */
+          tickShown = true; showFinger(fin.value, fin.value);
+          await sleep(fin.value * 90 + 700);
+          if (res.state === 'running') hideFinger();
+        }
 
         if (res.state === 'running') {
-          if (res.stage === 'challenge' && res.pose) {
+          if (res.stage === 'challenge' && res.kind === 'fingers') {
+            if (bannerFor) { hidePoseBanner(); bannerFor = null; }
+            showFinger(res.fingers, res.ticks);
+            setScanStatus(res.message, 'detecting');
+          } else if (res.stage === 'challenge' && res.pose) {
+            hideFinger();
             if (bannerFor !== res.pose) { showPoseBanner(res.pose, false); bannerFor = res.pose; }
             setScanStatus('Pose Challenge: ' + res.pose, 'detecting');
           } else {
@@ -98,7 +149,9 @@
     }
 
     isVerifyingLiveness = false;
-    if (!scanStream || !res) { hidePoseBanner(); isProcessingFrame = false; return; }
+    if (!scanStream || !res) { hidePoseBanner(); hideFinger(); isProcessingFrame = false; return; }
+    if (res.state !== 'passed') hideFinger();
+    else setTimeout(hideFinger, 900);
 
     if (res.state === 'idle') {
       guide.classList.remove('active'); draw(null);

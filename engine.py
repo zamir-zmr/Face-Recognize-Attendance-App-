@@ -7,6 +7,11 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+try:                                   # finger counting (optional: challenge falls back to pose-only if missing)
+    import mediapipe as mp
+except Exception:  # noqa: BLE001
+    mp = None
+
 MODEL_DIR = Path(os.getenv("FACE_MODEL_DIR", Path(__file__).parent / "models"))
 DET_FILES = ["face_detection_yunet_2023mar_int8.onnx", "face_detection_yunet_2023mar.onnx"]
 REC_FILES = ["face_recognition_sface_2021dec_int8.onnx", "face_recognition_sface_2021dec.onnx"]
@@ -68,6 +73,13 @@ def pose_metrics(face: np.ndarray):
     return n_x / eye_d, n_y / max(1.0, m_y)
 
 
+# ---------- fingers (MediaPipe Hands landmarks) ----------
+FINGER_PAIRS = ((8, 6), (12, 10), (16, 14), (20, 18))   # (tip, pip) for index..pinky
+FINGER_MARGIN = 1.05     # tip must be this much farther from wrist than pip
+THUMB_MARGIN = 1.2       # thumb tip vs thumb base, measured from pinky knuckle
+MIN_HAND_FRAC = 0.12     # hand bbox (max side) / frame
+
+
 # ---------- engine ----------
 class Engine:
     def __init__(self):
@@ -75,6 +87,8 @@ class Engine:
         self.detector = None
         self.recognizer = None
         self.det_name = self.rec_name = ""
+        self.hands = None
+        self.hlock = threading.Lock()
         cv2.setNumThreads(int(os.getenv("CV_THREADS", "2")))
 
     def load(self):
@@ -98,9 +112,45 @@ class Engine:
                     continue
         if self.detector is None or self.recognizer is None:
             raise RuntimeError("Models missing/unreadable in %s - run: python download_models.py" % MODEL_DIR)
+        if mp is not None and self.hands is None:
+            try:
+                self.hands = mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=1, model_complexity=0,
+                                                      min_detection_confidence=0.6)
+            except Exception as e:  # noqa: BLE001
+                print("[engine] MediaPipe Hands unavailable, finger challenge disabled:", e)
+                self.hands = None
         warm = np.zeros((240, 320, 3), np.uint8)   # warm-up so first real request is fast
         self.detect(warm, False)
         return self
+
+    @property
+    def hands_ready(self) -> bool:
+        return self.hands is not None
+
+    def count_fingers(self, bgr: np.ndarray):
+        """Returns (count 0-5, hand_box normalized [x,y,w,h]) or (None, None) when no usable hand is visible."""
+        if self.hands is None:
+            return None, None
+        h, w = bgr.shape[:2]
+        with self.hlock:
+            res = self.hands.process(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+        if not res.multi_hand_landmarks:
+            return None, None
+        pts = np.array([[p.x, p.y] for p in res.multi_hand_landmarks[0].landmark], np.float32)
+        x0, y0 = pts.min(axis=0)
+        x1, y1 = pts.max(axis=0)
+        if max(x1 - x0, y1 - y0) < MIN_HAND_FRAC:
+            return None, None
+        px = pts * np.array([w, h], np.float32)          # pixel space: no aspect distortion
+
+        def d(a, b):
+            return float(np.linalg.norm(px[a] - px[b]))
+
+        n = sum(1 for tip, pip in FINGER_PAIRS if d(tip, 0) > d(pip, 0) * FINGER_MARGIN)
+        if d(4, 17) > d(2, 17) * THUMB_MARGIN:
+            n += 1
+        box = [float(max(0, x0)), float(max(0, y0)), float(min(1, x1) - max(0, x0)), float(min(1, y1) - max(0, y0))]
+        return n, box
 
     @property
     def ready(self) -> bool:
