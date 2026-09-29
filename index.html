@@ -2079,6 +2079,7 @@ document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
 loadFaceModels(true);
 renderDashboard();
 </script>
+<script>window.FACE_BACKEND_URL = "https://face-backend.onrender.com"; window.FACE_API_KEY = "";  /* HTTPS only: camera + WebAuthn need a secure context */</script>
 <!-- PASTE just before </body> (after the main </script>). Set backend URL via window.FACE_BACKEND_URL / localStorage 'face_backend_url'. -->
 <script>
 /* ===== PYTHON/OPENCV BACKEND BRIDGE (falls back to built-in face-api.js when backend is unreachable) ===== */

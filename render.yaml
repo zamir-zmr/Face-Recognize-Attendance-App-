@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: face-backend
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python download_models.py
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: CV_THREADS
+        value: "1"
+      - key: CORS_ORIGINS
+        sync: false        # e.g. https://your-app.vercel.app
+      - key: FACE_API_KEY
+        sync: false        # same value goes in window.FACE_API_KEY
+    # Free-tier disk is ephemeral (embeddings reset on redeploy). Paid plan: uncomment to persist.
+    # disk:
+    #   name: face-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    # + env var: FACE_DATA_DIR=/var/data
