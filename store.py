@@ -1,16 +1,114 @@
-"""Embedding store. Persistence: Postgres (DATABASE_URL) or compressed npz file. Reads use an atomic snapshot (no torn ids/matrix)."""
+"""Embedding store + Firebase sync.
+Synced to Firebase (Realtime Database REST + Cloud Storage REST, stdlib only - no new pip deps):
+  /face_profiles/<emp>   face embeddings (+ image_path)      /employees/<emp>     employee records
+  /attendance_logs/<id>  attendance logs                     /history/<id>        history events
+  Storage: face_images/<emp>/profile.jpg                     (face images)
+NOT synced: UI state, button actions, anything local to the browser.
+Local npz file stays as offline cache; Firebase is the source of truth when reachable.
+Env: FIREBASE_SYNC=0 disables Firebase (falls back to Postgres via DATABASE_URL, else file).
+     FIREBASE_DB_URL / FIREBASE_BUCKET override config. FIREBASE_AUTH = database secret or ID token (if rules are not open)."""
+import base64
+import json
 import os
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import numpy as np
 
 DATA_DIR = Path(os.getenv("FACE_DATA_DIR", Path(__file__).parent / "data"))
 DB_FILE = DATA_DIR / "embeddings.npz"
-REFRESH_S = 3.0   # multi-worker: how often to check Postgres for changes made by other workers
+REFRESH_S = 3.0   # how often to check the remote store for changes made by other workers
+
+FIREBASE_CONFIG = {
+    "apiKey": "AIzaSyA0rirztMO13FyXcKYz1aEB1ERYH-HQUbA",
+    "authDomain": "sweethouse-e3e49.firebaseapp.com",
+    "databaseURL": "https://sweethouse-e3e49-default-rtdb.firebaseio.com",
+    "projectId": "sweethouse-e3e49",
+    "storageBucket": "sweethouse-e3e49.firebasestorage.app",
+    "messagingSenderId": "579322038108",
+    "appId": "1:579322038108:web:166b7fdb103080f56d6399",
+}
 
 
+# ---------- Firebase REST client ----------
+class Firebase:
+    def __init__(self):
+        self.enabled = os.getenv("FIREBASE_SYNC", "1") != "0"
+        self.db = os.getenv("FIREBASE_DB_URL", FIREBASE_CONFIG["databaseURL"]).rstrip("/")
+        self.bucket = os.getenv("FIREBASE_BUCKET", FIREBASE_CONFIG["storageBucket"])
+        self.auth = os.getenv("FIREBASE_AUTH", "")
+
+    @staticmethod
+    def key(raw: str) -> str:
+        """RTDB keys may not contain . $ # [ ] /  -> percent-encode them."""
+        return urllib.parse.quote(str(raw), safe="").replace(".", "%2E")
+
+    def _call(self, method, url, data=None, ctype="application/json", timeout=8):
+        req = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": ctype})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read()
+        return json.loads(raw) if raw else None
+
+    def _db(self, method, path, body=None, **q):
+        if self.auth:
+            q["auth"] = self.auth
+        if q.get("shallow"):
+            q["shallow"] = "true"
+        qs = ("?" + urllib.parse.urlencode(q)) if q else ""
+        data = json.dumps(body).encode() if body is not None else None
+        return self._call(method, "%s/%s.json%s" % (self.db, path.strip("/"), qs), data)
+
+    def get(self, path, **q):
+        return self._db("GET", path, **q)
+
+    def put(self, path, body):
+        return self._db("PUT", path, body)
+
+    def patch(self, path, body):
+        return self._db("PATCH", path, body)
+
+    def push(self, path, body):
+        return self._db("POST", path, body)
+
+    def delete(self, path):
+        return self._db("DELETE", path)
+
+    # -- Cloud Storage (face images) --
+    def _obj(self, path):
+        q = ("?alt=media&" if False else "")  # placeholder keeps URL building in one place
+        return "https://firebasestorage.googleapis.com/v0/b/%s/o/%s" % (self.bucket, urllib.parse.quote(path, safe=""))
+
+    def upload_image(self, path: str, data: bytes, ctype="image/jpeg"):
+        url = "https://firebasestorage.googleapis.com/v0/b/%s/o?name=%s" % (self.bucket, urllib.parse.quote(path, safe=""))
+        if self.auth:
+            url += "&auth=" + urllib.parse.quote(self.auth)
+        return self._call("POST", url, data, ctype, timeout=20)
+
+    def delete_image(self, path: str):
+        url = self._obj(path) + (("?auth=" + urllib.parse.quote(self.auth)) if self.auth else "")
+        try:
+            self._call("DELETE", url)
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+
+    def touch_meta(self, count: int):
+        self.put("face_meta", {"count": count, "updated_at": {".sv": "timestamp"}})
+
+
+def _enc(vec: np.ndarray) -> str:
+    return base64.b64encode(vec.astype(np.float16).tobytes()).decode()
+
+
+def _dec(s: str) -> np.ndarray:
+    return np.frombuffer(base64.b64decode(s), np.float16).astype(np.float32)
+
+
+# ---------- backends ----------
 class FileBackend:
     name = "file"
 
@@ -41,6 +139,69 @@ class FileBackend:
 
     def signature(self):
         return None
+
+
+class FirebaseBackend:
+    """Write-through: local npz cache first (works offline), then Firebase. Loads from Firebase, falls back to cache."""
+    name = "firebase"
+
+    def __init__(self, fb: Firebase):
+        self.fb = fb
+        self.local = FileBackend()
+        fb.get("face_meta")          # raises if unreachable / rules deny -> _make_backend falls back
+
+    def load_all(self) -> dict:
+        try:
+            meta = self.fb.get("face_meta")
+            local = self.local.load_all()
+            if meta is None and local:                     # first run: migrate existing local embeddings up
+                for emp, v in local.items():
+                    self._push(emp, v)
+                self.fb.touch_meta(len(local))
+                return local
+            remote = self.fb.get("face_profiles") or {}
+            vecs = {p["emp_id"]: _dec(p["vec"]) for p in remote.values() if p.get("vec") and p.get("emp_id")}
+            self.local.save_all(vecs)                      # refresh offline cache
+            return vecs
+        except Exception as e:  # noqa: BLE001
+            print("[store] Firebase load failed, using local cache:", e)
+            return self.local.load_all()
+
+    def _push(self, emp_id, vec):
+        self.fb.patch("face_profiles/" + Firebase.key(emp_id),
+                      {"emp_id": emp_id, "vec": _enc(vec), "updated_at": {".sv": "timestamp"}})
+
+    def put(self, emp_id, vec, vecs):
+        self.local.put(emp_id, vec, vecs)
+        try:
+            self._push(emp_id, vec)
+            self.fb.touch_meta(len(vecs))
+        except Exception as e:  # noqa: BLE001
+            print("[store] Firebase put failed (saved locally):", e)
+
+    def delete(self, emp_id, vecs):
+        self.local.delete(emp_id, vecs)
+        try:
+            self.fb.delete("face_profiles/" + Firebase.key(emp_id))
+            self.fb.delete_image("face_images/%s/profile.jpg" % emp_id)
+            self.fb.touch_meta(len(vecs))
+        except Exception as e:  # noqa: BLE001
+            print("[store] Firebase delete failed (removed locally):", e)
+
+    def keep_only(self, keep, vecs):
+        self.local.keep_only(keep, vecs)
+        try:
+            keep_keys = {Firebase.key(i) for i in vecs}
+            for k in (self.fb.get("face_profiles", shallow=True) or {}):
+                if k not in keep_keys:
+                    self.fb.delete("face_profiles/" + k)
+            self.fb.touch_meta(len(vecs))
+        except Exception as e:  # noqa: BLE001
+            print("[store] Firebase prune failed (pruned locally):", e)
+
+    def signature(self):
+        m = self.fb.get("face_meta") or {}
+        return (m.get("count"), m.get("updated_at"))
 
 
 class PgBackend:
@@ -90,7 +251,16 @@ class PgBackend:
             "SELECT count(*), coalesce(extract(epoch FROM max(updated_at)), 0) FROM face_embeddings", fetch=True)[0])
 
 
+fb = Firebase()
+
+
 def _make_backend():
+    if fb.enabled:
+        try:
+            return FirebaseBackend(fb)
+        except Exception as e:  # noqa: BLE001
+            print("[store] Firebase unavailable, falling back:", e)
+            fb.enabled = False
     url = os.getenv("DATABASE_URL")
     if url:
         try:
@@ -122,7 +292,7 @@ class Store:
         self._snap = (ids, mat)     # single assignment -> readers never see mismatched ids/mat
 
     def _maybe_refresh(self):
-        if self.backend != "postgres" or time.time() < self._next_check:
+        if self.backend not in ("postgres", "firebase") or time.time() < self._next_check:
             return
         with self._lock:
             if time.time() < self._next_check:
@@ -191,6 +361,38 @@ class Store:
     def similarity(self, emp_id: str, vec: np.ndarray) -> float:
         ids, mat = self._snap
         return float(mat[ids.index(emp_id)] @ vec) if emp_id in ids else -1.0
+
+    # ---------- Firebase data sync (durable data only; never UI state) ----------
+    def _sync(self, fn, what):
+        if not fb.enabled:
+            return False
+        try:
+            fn()
+            return True
+        except Exception as e:  # noqa: BLE001
+            print("[store] Firebase %s failed: %s" % (what, e))
+            return False
+
+    def save_face_image(self, emp_id: str, jpeg: bytes) -> str | None:
+        """Face image -> Firebase Storage; path is recorded on the face profile. Returns the storage path."""
+        path = "face_images/%s/profile.jpg" % emp_id
+        ok = self._sync(lambda: (fb.upload_image(path, jpeg),
+                                 fb.patch("face_profiles/" + Firebase.key(emp_id), {"image_path": path})), "image upload")
+        return path if ok else None
+
+    def upsert_employee(self, emp_id: str, data: dict) -> bool:
+        return self._sync(lambda: fb.patch("employees/" + Firebase.key(emp_id), {**data, "id": emp_id}), "employee sync")
+
+    def delete_employee(self, emp_id: str) -> bool:
+        return self._sync(lambda: fb.delete("employees/" + Firebase.key(emp_id)), "employee delete")
+
+    def log_attendance(self, emp_id: str, data: dict) -> bool:
+        rec = {**data, "employee_id": emp_id, "ts": data.get("ts") or int(time.time() * 1000)}
+        return self._sync(lambda: fb.push("attendance_logs", rec), "attendance log")
+
+    def add_history(self, emp_id: str, event: str, data: dict | None = None) -> bool:
+        rec = {**(data or {}), "employee_id": emp_id, "event": event, "ts": int(time.time() * 1000)}
+        return self._sync(lambda: fb.push("history", rec), "history")
 
 
 store = Store()
