@@ -992,6 +992,7 @@ async function saveEmployees(){
     const next = new Map(employees.map(e => [fbKey(e.id), e]));
     for(const k of Object.keys(remoteEmp)){
       if(next.has(k)) continue;
+      if(remoteEmp[k] && remoteEmp[k].deleted) continue;
       await fdb.ref('employees/' + k).remove();
       fst.ref('face_images/' + k + '/profile.jpg').delete().catch(()=>{});
       fdb.ref('face_profiles/' + k).remove().then(() => fdb.ref('face_profiles').once('value'))
@@ -1029,7 +1030,7 @@ function putLogs(byDate, dates){
 }
 fdb.ref('employees').on('value', snap => {
   remoteEmp = snap.val() || {};
-  employees = Object.values(remoteEmp).map(e => ({ ...e }));
+  employees = Object.values(remoteEmp).filter(e => e && !e.deleted).map(e => ({ ...e }));
   if(!empReady){ empReady = true; migrateLocal(); }
   rerender();
 }, err => {                        /* read denied / offline: show the browser's saved copy instead of an empty list */
@@ -1291,11 +1292,14 @@ function renderEmployees(){
     const de = employees.find(e=>e.id === b.dataset.del);
     if(await askConfirm('Delete employee?', (de ? de.name : 'This employee') + ' will be removed from all devices (profile, photo and face data).', 'Delete')){
       const did = b.dataset.del, dk = fbKey(did), drec = remoteEmp[dk] || de || {};
+      const eref = fdb.ref('employees/' + dk);
+      try{ await eref.remove(); }catch(err){ console.warn('remove failed', err.message); }
       try{
-        await fdb.ref('employees/' + dk).remove();
-        fdb.ref('deleted_employees/' + dk).set(Date.now()).catch(()=>{});
-        tomb[dk] = Date.now();
+        let still = (await eref.once('value')).exists();               /* verify on server */
+        if(still){ await eref.update({ deleted: true, deletedAt: Date.now() }); still = false; }   /* rules block delete -> soft delete */
       }catch(err){ toast('Delete failed: ' + err.message, 'err'); return; }
+      fdb.ref('deleted_employees/' + dk).set(Date.now()).catch(()=>{});
+      tomb[dk] = Date.now();
       employees = employees.filter(e=>e.id !== did);
       delete remoteEmp[dk];
       renderEmployees(); renderDashboard();
@@ -1313,7 +1317,7 @@ document.getElementById('empSearch').addEventListener('input', renderEmployees);
 /* EMPLOYEE DATA JSON IMPORT & EXPORT */
 document.getElementById('exportJsonBtn').addEventListener('click', async ()=>{
   const byId = new Map(employees.map(e => [e.id, e]));              /* what the app shows now */
-  try{ Object.values((await fdb.ref('employees').once('value')).val() || {}).forEach(e => byId.set(e.id, { ...byId.get(e.id), ...e })); }catch(e){}   /* + Firebase copy */
+  try{ Object.values((await fdb.ref('employees').once('value')).val() || {}).filter(e => e && !e.deleted).forEach(e => byId.set(e.id, { ...byId.get(e.id), ...e })); }catch(e){}   /* + Firebase copy */
   const toData = u => fetch(u).then(r => r.blob()).then(b => new Promise(ok => { const f = new FileReader(); f.onload = () => ok(f.result); f.readAsDataURL(b); })).catch(() => u);
   const cleanEmployees = await Promise.all([...byId.values()].map(async ({ photoUrl, ...e }) => (e.photo && !/^data:/.test(e.photo)) ? { ...e, photo: await toData(e.photo) } : e));
   if(!cleanEmployees.length){ toast('No employee records to export', 'err'); return; }

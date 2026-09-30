@@ -91,7 +91,7 @@ INDEX = Path(__file__).parent / "index.html"
 @app.get("/", include_in_schema=False)
 def root():
     if INDEX.exists():
-        return FileResponse(INDEX, media_type="text/html")
+        return FileResponse(INDEX, media_type="text/html", headers={"Cache-Control": "no-store"})
     return {"service": "face-backend", "health": "/api/health", "docs": "/docs"}
 
 
