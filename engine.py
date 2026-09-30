@@ -2,6 +2,7 @@
 import math
 import os
 import threading
+import time
 from pathlib import Path
 
 import cv2
@@ -95,6 +96,7 @@ class Engine:
         self._hands_api = ""
         self.hands_error = ""          # why the finger challenge is off (shown in the app popup via /api/health)
         self.hlock = threading.Lock()
+        self._hts = 0                  # monotonic ms timestamp required by the tasks VIDEO mode
         cv2.setNumThreads(int(os.getenv("CV_THREADS", "2")))
 
     def load(self):
@@ -132,15 +134,17 @@ class Engine:
         Tasks API only as fallback (needs hand_landmarker.task AND system libGLESv2/libEGL)."""
         try:
             if hasattr(mp, "solutions"):
-                h = mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=1, model_complexity=0,
-                                             min_detection_confidence=0.6)
+                # static_image_mode=False: palm detector only runs when the hand is lost, otherwise the cheap
+                # landmark tracker follows it from frame to frame -> much faster finger tracking.
+                h = mp.solutions.hands.Hands(static_image_mode=False, max_num_hands=1, model_complexity=0,
+                                             min_detection_confidence=0.6, min_tracking_confidence=0.5)
                 print("[engine] MediaPipe Hands (legacy solutions) ready")
                 return h, "legacy"
             if HAND_MODEL.exists():
                 from mediapipe.tasks.python import BaseOptions, vision
                 opts = vision.HandLandmarkerOptions(
                     base_options=BaseOptions(model_asset_path=str(HAND_MODEL)),
-                    running_mode=vision.RunningMode.IMAGE, num_hands=1,
+                    running_mode=vision.RunningMode.VIDEO, num_hands=1,   # VIDEO = tracking between frames
                     min_hand_detection_confidence=0.6, min_hand_presence_confidence=0.5, min_tracking_confidence=0.5)
                 h = vision.HandLandmarker.create_from_options(opts)     # may raise (e.g. missing libGLESv2)
                 print("[engine] MediaPipe HandLandmarker (tasks) ready")
@@ -166,7 +170,8 @@ class Engine:
         rgb = np.ascontiguousarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
         with self.hlock:
             if self._hands_api == "tasks":
-                res = self.hands.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
+                self._hts = max(self._hts + 1, int(time.monotonic() * 1000))
+                res = self.hands.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), self._hts)
                 lms = res.hand_landmarks[0] if res.hand_landmarks else None
             else:
                 res = self.hands.process(rgb)

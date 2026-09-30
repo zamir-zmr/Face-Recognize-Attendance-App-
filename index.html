@@ -172,7 +172,7 @@ tr:last-child td { border-bottom: none; }
 
 .cam-box {
   position: relative; background: #000; border-radius: var(--radius); overflow: hidden;
-  border: 1px solid var(--line); aspect-ratio: 1/1.35; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center;
   box-shadow: 0 12px 32px rgba(0,0,0,0.6);
   transition: background 0.3s ease;
 }
@@ -217,8 +217,8 @@ tr:last-child td { border-bottom: none; }
   100% { top: 95%; opacity: 0; }
 }
 
-/* Professional Face Guide Frame - cyan oval mesh (distinct from the amber finger overlay).
-   Camera OFF: the mesh spins around its vertical axis (standby). Camera ON: it locks upright and stays static. */
+/* Professional Face Guide Frame - cyan oval mesh, shown only while the camera is OFF (spins around its vertical axis).
+   Camera ON: hidden entirely (see .cam-box.active-scan .cam-guide). */
 :root { --oval: #00E5FF; --oval-rgb: 0, 229, 255; --finger: #F59E0B; }
 body.white-mode { --oval: #3B82F6; --oval-rgb: 59, 130, 246; }
 .cam-guide {
@@ -254,9 +254,8 @@ body.white-mode { --oval: #3B82F6; --oval-rgb: 59, 130, 246; }
 .cam-box:not(.active-scan) .cam-guide::before { animation: ovalSpin 6s linear infinite; }
 .cam-box:not(.active-scan) .cam-guide::after  { animation: ovalSpin 9s linear infinite reverse; }
 @keyframes ovalSpin { from { transform: rotateY(0deg); } to { transform: rotateY(360deg); } }
-/* camera ON -> fixed, upright, no rotation */
-.cam-box.active-scan .cam-guide::before,
-.cam-box.active-scan .cam-guide::after { animation: none; transform: none; }
+/* camera ON -> oval mesh, inner grid and dimming mask are removed completely */
+.cam-box.active-scan .cam-guide { display: none !important; }
 
 .cam-guide.active {
   border-color: var(--oval);
@@ -416,7 +415,7 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
 .modal-actions button { flex: 1; padding: 10px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; font-size: 0.82rem; }
 .modal-actions .cancel { background: transparent; color: var(--text); border: 1px solid var(--line); }
 .modal-actions .confirm { background: var(--accent-grad); color: #fff; }
-.reg-cam { width: 100%; aspect-ratio: 1/1.35; background: #000; border-radius: 12px; overflow: hidden; position: relative; margin-bottom: 8px; border: 1px solid var(--line); }
+.reg-cam { width: 100%; aspect-ratio: 4/3; background: #000; border-radius: 12px; overflow: hidden; position: relative; margin-bottom: 8px; border: 1px solid var(--line); }
 .reg-cam video, .reg-cam img { width: 100%; height: 100%; object-fit: cover; }
 .reg-cam video { transform: scaleX(-1); }
 .enroll-status { min-height: 16px; font-size: 0.75rem; color: var(--sub); margin-top: 6px; font-weight: 600; }
@@ -1974,6 +1973,7 @@ renderDashboard();
     url: (window.FACE_BACKEND_URL || localStorage.getItem('face_backend_url') || 'http://localhost:8000').replace(/\/$/, ''),
     key: window.FACE_API_KEY || localStorage.getItem('face_api_key') || '',
     width: 480, quality: 0.6, gapMs: 0,
+    fingerWidth: 320, fingerQuality: 0.5,     /* smaller/lighter JPEGs in the finger step = faster round-trips */
     pruneSync: window.FACE_PRUNE_SYNC === true          /* opt-in: delete server embeddings for employees removed locally */
   };
   const backend = { ok: false };
@@ -2108,7 +2108,7 @@ renderDashboard();
   const _origRunFaceScan = window.runFaceScan;
 
   /* ---------- Two-step HUD (Step 1/2 face, Step 2/2 fingers) ---------- */
-  const HUD_BLUE = '#00E5FF', HUD_GREEN = '#10B981', HUD_RED = '#f43f5e', FINGER_COLOR = '#F59E0B';
+  const HUD_BLUE = '#00E5FF', HUD_GREEN = '#10B981', HUD_RED = '#f43f5e', FINGER_COLOR = '#10B981';
   const camBox = () => document.getElementById('camBox');
   let hudEl = null, hudBadge = null, hudLabel = null, hudPrompt = null, hudDots = [];
   function ensureHud() {
@@ -2152,7 +2152,7 @@ renderDashboard();
     box.style.display = 'flex';
   }
 
-  /* ---------- Finger tracking overlay: amber ring + thin amber stem, smoothly interpolated (distinct from the cyan face oval) ---------- */
+  /* ---------- Finger tracking overlay: green ring + thin green stem, smoothly interpolated  ---------- */
   let fCanvas = null, fRAF = 0; const fState = new Map();
   const lerp2 = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
   function fingerCanvas(video) {
@@ -2169,7 +2169,7 @@ renderDashboard();
       const s = fState.get(f.n);
       if (s) {                                   /* glide from where the dot is now to the new position */
         s.fT = s.cT; s.fB = s.cB; s.tT = f.tip; s.tB = f.base;
-        s.dur = Math.min(300, Math.max(50, now - s.t0)); s.t0 = now; s.seen = now;
+        s.dur = Math.min(160, Math.max(40, now - s.t0)); s.t0 = now; s.seen = now;
       } else fState.set(f.n, { fT: f.tip, fB: f.base, tT: f.tip, tB: f.base, cT: f.tip, cB: f.base, t0: now, dur: 120, seen: now });
     }
     for (const [k, s] of fState) if (!seen.has(k) && now - s.seen > 200) fState.delete(k);
@@ -2193,7 +2193,7 @@ renderDashboard();
       /* stem: casing + thin accent line */
       ctx.shadowBlur = 0; ctx.strokeStyle = CASING; ctx.lineWidth = lw + 2.2;
       ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke();
-      ctx.shadowColor = 'rgba(245,158,11,.5)'; ctx.shadowBlur = 5; ctx.strokeStyle = FINGER_COLOR; ctx.lineWidth = lw;
+      ctx.shadowColor = 'rgba(16,185,129,.55)'; ctx.shadowBlur = 5; ctx.strokeStyle = FINGER_COLOR; ctx.lineWidth = lw;
       ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke();
       /* base joint: small solid dot */
       ctx.shadowBlur = 0; ctx.fillStyle = FINGER_COLOR;
@@ -2201,7 +2201,7 @@ renderDashboard();
       /* tip: hollow ring with a small centre dot */
       ctx.strokeStyle = CASING; ctx.lineWidth = lw + 2.2;
       ctx.beginPath(); ctx.arc(tx, ty, r, 0, Math.PI * 2); ctx.stroke();
-      ctx.shadowColor = 'rgba(245,158,11,.5)'; ctx.shadowBlur = 5; ctx.strokeStyle = FINGER_COLOR; ctx.lineWidth = lw;
+      ctx.shadowColor = 'rgba(16,185,129,.55)'; ctx.shadowBlur = 5; ctx.strokeStyle = FINGER_COLOR; ctx.lineWidth = lw;
       ctx.beginPath(); ctx.arc(tx, ty, r, 0, Math.PI * 2); ctx.stroke();
       ctx.shadowBlur = 0; ctx.fillStyle = FINGER_COLOR;
       ctx.beginPath(); ctx.arc(tx, ty, r * 0.32, 0, Math.PI * 2); ctx.fill();
@@ -2241,7 +2241,7 @@ renderDashboard();
     try {
       while (scanStream) {
         updateFlashlightState(video);
-        res = await api('/api/verify/frame', { method: 'POST', body: JSON.stringify({ session_id: sid, image: grab(video, fast ? 384 : CFG.width) }) }, 5000);
+        res = await api('/api/verify/frame', { method: 'POST', body: JSON.stringify({ session_id: sid, image: fast ? grab(video, CFG.fingerWidth, CFG.fingerQuality) : grab(video, CFG.width) }) }, 5000);
         if (res.stage !== 'search') isVerifyingLiveness = true;
         guide.classList.toggle('active', !!res.box);
         draw(res.box, '#38bdf8');
