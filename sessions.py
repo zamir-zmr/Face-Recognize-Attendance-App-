@@ -1,5 +1,5 @@
-"""Verification flow: search -> identify -> baseline -> random challenge sequence (POSE left/right + FINGER count 1-5, random order) -> passed/failed.
-Everything (order, pose, finger count) is chosen server-side; fingers are counted server-side too."""
+"""Two-step verification. Step 1/2: identify -> baseline -> random head-turn challenge. Step 2/2: random finger-count
+challenge (hand tracked, overlay points returned). Attendance passes only after both. Challenges are chosen server-side."""
 import os
 import pickle
 import secrets
@@ -29,13 +29,15 @@ BASE_SPREAD = 0.08              # baseline yaw samples must be this steady
 POSE_TIMEOUT = float(os.getenv("POSE_TIMEOUT_S", 8))
 SEARCH_TIMEOUT = 3.0
 NOFACE_FAIL_S = 2.5
-HARD_TIMEOUT = 30.0
+HARD_TIMEOUT = 45.0
 MOTION_MIN = 0.45               # mean abs pixel diff (0-255) of fixed face ROI across baseline
 UNKNOWN_LIMIT = 5
 POSES = ("LEFT", "RIGHT")
-FINGER_CHOICES = (1, 2, 3, 4, 5)
-FINGER_TIMEOUT = float(os.getenv("FINGER_TIMEOUT_S", 10))
-FINGER_HOLD = int(os.getenv("FINGER_HOLD_FRAMES", 3))   # consecutive frames with the exact count
+FINGER_TARGETS = tuple(int(x) for x in os.getenv("FINGER_TARGETS", "1,2,3,4,5").split(",") if x.strip())
+FINGER_HOLD = 3                     # consecutive frames with the exact requested count
+FINGER_TIMEOUT = float(os.getenv("FINGER_TIMEOUT_S", 12))
+FINGER_FACE_GRACE = 3.5             # face may be hidden briefly by the hand
+REQUIRE_FINGER = os.getenv("REQUIRE_FINGER", "1") != "0"   # 0 = pose-only fallback when hand tracking is unavailable
 
 _lock = threading.Lock()
 SESSION_TTL = 90
@@ -64,13 +66,10 @@ class Session:
     done: bool = False
     result: dict | None = None
     score: float = 0.0
-    steps: list = field(default_factory=list)        # e.g. [("fingers", 3), ("pose", "LEFT")] - random order
-    step_i: int = 0
-    kind: str | None = None                          # current challenge: "pose" | "fingers"
-    fingers: int | None = None
-    fhold: int = 0
-    ticks: int = 0
-    completed: list = field(default_factory=list)    # [{"kind": "fingers", "value": 3}, ...]
+    use_fingers: bool = True
+    f_target: int | None = None
+    f_deadline: float = 0.0
+    f_hold: int = 0
 
 
 # ---------- session storage: Redis (multi-worker safe) when REDIS_URL is set, else in-memory ----------
@@ -110,7 +109,7 @@ def start() -> Session:
                 del _mem[k]
             if len(_mem) > 300:
                 _mem.pop(next(iter(_mem)))
-    s = Session()
+    s = Session(use_fingers=bool(getattr(engine, "hands_ready", False)))
     _save(s)
     return s
 
@@ -148,13 +147,10 @@ def _collect_baseline(s: Session, frame, face, yaw: float):
 
 
 def _resp(s: Session, state: str, message: str, face=None, frame_shape=None, **extra):
-    chal = s.stage == "challenge"
-    out = {"state": state, "stage": s.stage, "message": message,
-           "pose": s.target if chal and s.kind == "pose" else None,
-           "kind": s.kind if chal else None,
-           "fingers": s.fingers if chal and s.kind == "fingers" else None,
-           "ticks": s.ticks, "completed": s.completed,
-           "step": min(s.step_i + 1, len(s.steps)), "steps": len(s.steps)}
+    out = {"state": state, "stage": s.stage, "message": message, "pose": s.target if s.stage == "challenge" else None,
+           "step": 2 if (s.use_fingers and s.stage in ("finger", "passed")) else 1, "steps": 2 if s.use_fingers else 1}
+    if s.stage == "finger":
+        out["target_fingers"] = s.f_target
     if face is not None and frame_shape is not None:
         H, W = frame_shape[:2]
         out["box"] = [float(face[0]) / W, float(face[1]) / H, float(face[2]) / W, float(face[3]) / H]
@@ -171,62 +167,39 @@ def _finish(s: Session, state: str, message: str, face=None, shape=None, **extra
     return s.result
 
 
-def _make_steps() -> list:
-    steps = [("pose", secrets.choice(POSES))]
-    if engine.hands_ready:
-        steps.append(("fingers", secrets.choice(FINGER_CHOICES)))
-        if secrets.randbelow(2):
-            steps.reverse()
-    return steps
+def _fmsg(n: int) -> str:
+    return "Show %d finger%s" % (n, "" if n == 1 else "s")
 
 
-def _begin_step(s: Session, now: float, face, shape, info):
-    kind, val = s.steps[s.step_i]
-    s.kind, s.stage = kind, "challenge"
-    s.hold = s.wrong = s.fhold = s.ticks = 0
-    s.smooth, s.hist = None, []
-    s.target = val if kind == "pose" else None
-    s.fingers = val if kind == "fingers" else None
-    s.deadline = now + (POSE_TIMEOUT if kind == "pose" else FINGER_TIMEOUT)
-    msg = "Pose Challenge: %s" % val if kind == "pose" else "Finger Challenge: show %d finger%s" % (val, "" if val == 1 else "s")
-    return _resp(s, "running", msg, face, shape, **info)
-
-
-def _complete_step(s: Session, now: float, frame, face, shape, info):
-    sim = store.similarity(s.emp, engine.embed(frame, face))   # same person must finish every challenge
-    if sim < POSE_MATCH_THRESHOLD:
-        return _finish(s, "failed", "Identity changed during challenge", face, shape, reason="identity", **info)
-    s.score = max(s.score, sim)
-    kind, val = s.steps[s.step_i]
-    if kind == "fingers":
-        s.ticks = val
-    s.completed = s.completed + [{"kind": kind, "value": val}]
-    s.step_i += 1
-    if s.step_i >= len(s.steps):
-        s.stage = "passed"
-        return _finish(s, "passed", "Verified", face, shape, **info)
-    if s.steps[s.step_i][0] == "pose":       # head pose needs a fresh neutral baseline after the hand step
-        s.stage, s.kind, s.target, s.fingers, s.base = "baseline", None, None, None, []
-        return _resp(s, "running", "Great! Look straight at the camera...", face, shape, **info)
-    return _begin_step(s, now, face, shape, info)
-
-
-def _fingers_step(s: Session, now: float, frame, face, shape, info):
-    count, hbox = engine.count_fingers(frame)
-    extra = dict(info, hand=hbox)
-    if count is None:
-        s.fhold = s.ticks = 0
-        return _resp(s, "running", "Show your hand to the camera", face, shape, **extra)
-    if count == s.fingers:
-        s.fhold += 1
-        s.ticks = count
-        if s.fhold >= FINGER_HOLD:
-            return _complete_step(s, now, frame, face, shape, extra)
-        return _resp(s, "running", "Hold steady...", face, shape, **extra)
-    s.fhold = 0
-    s.ticks = count if count < s.fingers else 0
-    msg = "Too many fingers - show exactly %d" % s.fingers if count > s.fingers else "Show %d finger%s (seeing %d)" % (s.fingers, "" if s.fingers == 1 else "s", count)
-    return _resp(s, "running", msg, face, shape, **extra)
+def _finger_step(s: Session, frame, faces, shape, now: float, info: dict) -> dict:
+    """Step 2/2. Hand may cover the face, so no face-size gating here; identity is re-checked on the passing frame."""
+    face = faces[0] if faces else None
+    if face is not None:
+        s.last_face_t = now
+    if now > s.f_deadline:
+        return _finish(s, "failed", "Timed out - %s" % _fmsg(s.f_target).lower(), face, shape, reason="timeout",
+                       target_fingers=s.f_target, **info)
+    if now - s.last_face_t > FINGER_FACE_GRACE:
+        return _finish(s, "failed", "Keep your face in view", reason="noface", target_fingers=s.f_target, **info)
+    hand = engine.analyze_hand(frame)
+    count = hand["count"] if hand else None
+    extra = dict(count=count, fingers=hand["fingers"] if hand else [], hand_box=hand["box"] if hand else None,
+                 target_fingers=s.f_target, **info)
+    if count == s.f_target:
+        s.f_hold += 1
+        if s.f_hold >= FINGER_HOLD:
+            if face is None:
+                return _resp(s, "running", "Keep your face and hand in view", **extra)
+            vec = engine.embed(frame, face)          # same person must finish both steps
+            sim = store.similarity(s.emp, vec)
+            if sim < POSE_MATCH_THRESHOLD:
+                return _finish(s, "failed", "Identity changed during challenge", face, shape, reason="identity", **extra)
+            s.score = max(s.score, sim)
+            s.stage = "passed"
+            return _finish(s, "passed", "Verified", face, shape, **extra)
+    else:
+        s.f_hold = 0
+    return _resp(s, "running", "Step 2/2: " + _fmsg(s.f_target), face, shape, **extra)
 
 
 def step(s: Session, bgr: np.ndarray) -> dict:
@@ -240,6 +213,9 @@ def step(s: Session, bgr: np.ndarray) -> dict:
     shape = frame.shape
     faces = engine.detect(frame, low)
     info = {"luma": round(luma, 1), "low_light": low}
+
+    if s.stage == "finger":
+        return _finger_step(s, frame, faces, shape, now, info)
 
     if not faces:
         if s.stage in ("search", "identify"):
@@ -279,6 +255,9 @@ def step(s: Session, bgr: np.ndarray) -> dict:
             s.emp, s.score = emp, sim
             if s.ident_hits >= IDENT_FRAMES:
                 s.stage = "baseline"           # fall through: challenge can start on this very frame
+                if REQUIRE_FINGER and not s.use_fingers:
+                    return _finish(s, "failed", "Finger challenge unavailable on server - see notice", face, shape,
+                                   reason="finger_unavailable", **info)
             else:
                 return _resp(s, "running", "Recognizing...", face, shape, **info)
         else:
@@ -298,16 +277,13 @@ def step(s: Session, bgr: np.ndarray) -> dict:
         if float(np.mean(s.diffs[-BASE_FRAMES:])) < MOTION_MIN:
             return _finish(s, "failed", "Spoof suspected (static image/frozen video)", face, shape, reason="spoof", **info)
         s.baseline = float(np.median(s.base))
-        if not s.steps:
-            s.steps, s.step_i = _make_steps(), 0     # random order + random values, decided server-side
-        return _begin_step(s, now, face, shape, info)
+        s.target = secrets.choice(POSES)       # pure random (no anti-repeat: with 2 poses that would be predictable)
+        s.stage, s.deadline, s.hold, s.wrong, s.smooth, s.hist = "challenge", now + POSE_TIMEOUT, 0, 0, None, []
+        return _resp(s, "running", "Pose Challenge: " + s.target, face, shape, **info)
 
-    # ---- challenge ----
+    # ---- challenge (yaw only) ----
     if now > s.deadline:
-        what = "%s pose" % s.target if s.kind == "pose" else "%s finger challenge" % s.fingers
-        return _finish(s, "failed", "Timed out - %s not detected" % what, face, shape, reason="timeout", **info)
-    if s.kind == "fingers":
-        return _fingers_step(s, now, frame, face, shape, info)
+        return _finish(s, "failed", "Timed out - %s pose not detected" % s.target, face, shape, reason="timeout", **info)
     s.hist = (s.hist + [yaw])[-3:]                                  # median of last 3 kills landmark spikes
     m = float(np.median(s.hist))
     s.smooth = m if s.smooth is None else SMOOTH * m + (1 - SMOOTH) * s.smooth
@@ -318,7 +294,17 @@ def step(s: Session, bgr: np.ndarray) -> dict:
         s.hold += 1
         s.wrong = 0
         if s.hold >= HOLD_FRAMES:
-            return _complete_step(s, now, frame, face, shape, info)
+            vec = engine.embed(frame, face)   # same person must finish the challenge
+            sim = store.similarity(s.emp, vec)
+            if sim < POSE_MATCH_THRESHOLD:
+                return _finish(s, "failed", "Identity changed during challenge", face, shape, reason="identity", **info)
+            s.score = max(s.score, sim)
+            if s.use_fingers:                                   # Step 1/2 done -> Step 2/2
+                s.stage, s.f_target = "finger", secrets.choice(FINGER_TARGETS)
+                s.f_deadline, s.f_hold = now + FINGER_TIMEOUT, 0
+                return _resp(s, "running", "Step 2/2: " + _fmsg(s.f_target), face, shape, **info)
+            s.stage = "passed"
+            return _finish(s, "passed", "Verified", face, shape, **info)
     else:
         s.hold = 0
         s.wrong = s.wrong + 1 if -tv >= WRONG_STRENGTH else max(0, s.wrong - 1)

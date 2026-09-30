@@ -156,10 +156,12 @@ class Engine:
     def hands_ready(self) -> bool:
         return self.hands is not None
 
-    def count_fingers(self, bgr: np.ndarray):
-        """Returns (count 0-5, hand_box normalized [x,y,w,h]) or (None, None) when no usable hand is visible."""
+    def analyze_hand(self, bgr: np.ndarray):
+        """One hand -> {"count": 0-5, "box": [x,y,w,h], "fingers": [{"n": name, "tip": [x,y], "base": [x,y]}, ...]}.
+        `fingers` lists only extended fingers (normalized 0-1 image coords) for the UI tracking overlay.
+        Returns None when no usable hand is visible or hand tracking is unavailable."""
         if self.hands is None:
-            return None, None
+            return None
         h, w = bgr.shape[:2]
         rgb = np.ascontiguousarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
         with self.hlock:
@@ -170,22 +172,32 @@ class Engine:
                 res = self.hands.process(rgb)
                 lms = res.multi_hand_landmarks[0].landmark if res.multi_hand_landmarks else None
         if lms is None:
-            return None, None
+            return None
         pts = np.array([[p.x, p.y] for p in lms], np.float32)
         x0, y0 = pts.min(axis=0)
         x1, y1 = pts.max(axis=0)
         if max(x1 - x0, y1 - y0) < MIN_HAND_FRAC:
-            return None, None
+            return None
         px = pts * np.array([w, h], np.float32)          # pixel space: no aspect distortion
 
         def d(a, b):
             return float(np.linalg.norm(px[a] - px[b]))
 
-        n = sum(1 for tip, pip in FINGER_PAIRS if d(tip, 0) > d(pip, 0) * FINGER_MARGIN)
+        ext = []                                          # (name, tip landmark, base landmark)
         if d(4, 17) > d(2, 17) * THUMB_MARGIN:
-            n += 1
+            ext.append(("thumb", 4, 2))
+        for name, (tip, pip), mcp in zip(("index", "middle", "ring", "pinky"), FINGER_PAIRS, (5, 9, 13, 17)):
+            if d(tip, 0) > d(pip, 0) * FINGER_MARGIN:
+                ext.append((name, tip, mcp))
+        fingers = [{"n": n, "tip": [float(pts[t][0]), float(pts[t][1])], "base": [float(pts[m][0]), float(pts[m][1])]}
+                   for n, t, m in ext]
         box = [float(max(0, x0)), float(max(0, y0)), float(min(1, x1) - max(0, x0)), float(min(1, y1) - max(0, y0))]
-        return n, box
+        return {"count": len(ext), "box": box, "fingers": fingers}
+
+    def count_fingers(self, bgr: np.ndarray):
+        """Returns (count 0-5, hand_box normalized [x,y,w,h]) or (None, None) when no usable hand is visible."""
+        r = self.analyze_hand(bgr)
+        return (r["count"], r["box"]) if r else (None, None)
 
     @property
     def ready(self) -> bool:
