@@ -2115,7 +2115,7 @@ renderDashboard();
   function ensureHud() {
     if (hudEl && hudEl.isConnected) return hudEl;
     hudEl = document.createElement('div'); hudEl.id = 'stepHud';
-    hudEl.style.cssText = 'position:absolute;top:10px;left:0;right:0;z-index:6;display:none;flex-direction:column;align-items:center;gap:8px;pointer-events:none;padding:0 10px';
+    hudEl.style.cssText = 'position:absolute;top:10px;left:0;right:0;z-index:10005;display:none;flex-direction:column;align-items:center;gap:8px;pointer-events:none;padding:0 10px';
     hudBadge = document.createElement('div');
     hudBadge.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;font:700 13px/1.2 system-ui,sans-serif;color:#fff;background:rgba(15,23,42,.85);border:1.5px solid ' + HUD_BLUE + ';transition:border-color .2s';
     hudDots = [0, 1].map(() => { const d = document.createElement('span'); d.style.cssText = 'width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.25);transition:background .2s'; return d; });
