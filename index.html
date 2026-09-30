@@ -1258,8 +1258,9 @@ document.getElementById('empSearch').addEventListener('input', renderEmployees);
 
 /* EMPLOYEE DATA JSON IMPORT & EXPORT */
 document.getElementById('exportJsonBtn').addEventListener('click', async ()=>{
-  let cleanEmployees = [];
-  try{ cleanEmployees = Object.values((await fdb.ref('employees').once('value')).val() || {}); }catch(e){ toast('Firebase: ' + e.message, 'err'); return; }
+  const byId = new Map(employees.map(e => [e.id, e]));              /* what the app shows now */
+  try{ Object.values((await fdb.ref('employees').once('value')).val() || {}).forEach(e => byId.set(e.id, { ...byId.get(e.id), ...e })); }catch(e){}   /* + Firebase copy */
+  const cleanEmployees = [...byId.values()].map(e => /^data:/.test(e.photo || '') ? (({ photo, ...r }) => r)(e) : e);
   if(!cleanEmployees.length){ toast('No employee records to export', 'err'); return; }
   const jsonStr = JSON.stringify(cleanEmployees, null, 2);
   const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -1299,10 +1300,9 @@ document.getElementById('importJsonInput').addEventListener('change', (e)=>{
           addedCount++;
         }
       });
-      saveEmployees();
       renderEmployees();
       renderDashboard();
-      toast(`Imported: ${addedCount} added, ${updatedCount} updated`, 'ok');
+      saveEmployees().then(ok => { if(ok) toast(`Imported to Firebase: ${addedCount} added, ${updatedCount} updated`, 'ok'); });
     }catch(err){
       toast('Failed to parse JSON file', 'err');
     }
