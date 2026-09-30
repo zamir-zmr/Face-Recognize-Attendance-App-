@@ -2221,7 +2221,7 @@ renderDashboard();
   /* ---------- LIVE SCAN (server: low-light enhance -> detect -> identify -> random pose challenge) ---------- */
   const _origRunFaceScan = window.runFaceScan;
 
-  /* ---------- Two-step HUD (Step 1/2 face, Step 2/2 fingers) ---------- */
+  /* ---------- Two-step HUD (Step 1/2 fingers, Step 2/2 face) ---------- */
   const HUD_BLUE = '#38bdf8', HUD_GREEN = '#22c55e', HUD_RED = '#f43f5e';
   const camBox = () => document.getElementById('camBox');
   let hudEl = null, hudBadge = null, hudLabel = null, hudPrompt = null, hudDots = [];
@@ -2248,8 +2248,8 @@ renderDashboard();
     const two = (res.steps || 1) === 2, step = res.step || 1;
     const done = res.state === 'passed', bad = res.state === 'failed' || res.state === 'unknown';
     hudLabel.textContent = done ? (two ? 'Step 2/2 ✓ Verified' : '✓ Verified')
-      : two ? 'Step ' + step + '/2: ' + (step === 1 ? 'Face Verification' : 'Finger Challenge') : 'Face Verification';
-    hudBadge.style.borderColor = bad ? HUD_RED : (done || step === 2) ? HUD_GREEN : HUD_BLUE;
+      : two ? 'Step ' + step + '/2: ' + (step === 1 ? 'Finger Challenge' : 'Face Verification') : 'Face Verification';
+    hudBadge.style.borderColor = bad ? HUD_RED : done ? HUD_GREEN : HUD_BLUE;
     hudDots[0].style.background = (step >= 2 || done) ? HUD_GREEN : (bad ? HUD_RED : HUD_BLUE);
     hudDots[1].style.display = two ? '' : 'none';
     hudDots[1].style.background = done ? HUD_GREEN : (step === 2 ? (bad ? HUD_RED : HUD_BLUE) : 'rgba(255,255,255,.25)');
@@ -2334,30 +2334,30 @@ renderDashboard();
       ctx.strokeRect(box[0] * overlay.width, box[1] * overlay.height, box[2] * overlay.width, box[3] * overlay.height);
     };
 
-    let sid, res = null, bannerFor = null, step = 1;
+    let sid, res = null, bannerFor = null, fast = false;
     try { sid = (await api('/api/verify/start', { method: 'POST', body: '{}' })).session_id; }
     catch (e) { backend.ok = false; isProcessingFrame = false; return; }
 
     try {
       while (scanStream) {
         updateFlashlightState(video);
-        res = await api('/api/verify/frame', { method: 'POST', body: JSON.stringify({ session_id: sid, image: grab(video, step === 2 ? 384 : CFG.width) }) }, 5000);
+        res = await api('/api/verify/frame', { method: 'POST', body: JSON.stringify({ session_id: sid, image: grab(video, fast ? 384 : CFG.width) }) }, 5000);
         if (res.stage !== 'search') isVerifyingLiveness = true;
         guide.classList.toggle('active', !!res.box);
         draw(res.box, '#38bdf8');
-        hud(res); step = res.step || 1;
+        hud(res); fast = res.stage === 'finger';      /* smaller frames while tracking fingers */
 
         if (res.state === 'running') {
           const two = (res.steps || 1) === 2;
-          if (res.stage === 'finger') {                                /* Step 2/2 */
+          if (res.stage === 'finger') {                                /* Step 1/2 */
             if (bannerFor) { hidePoseBanner(); bannerFor = null; }
             setFingers(res.fingers || [], video);
-            setScanStatus(res.message || 'Step 2/2: Finger Challenge', 'detecting');
-          } else if (res.stage === 'challenge' && res.pose) {          /* Step 1/2 */
+            setScanStatus(res.message || 'Step 1/2: Finger Challenge', 'detecting');
+          } else if (res.stage === 'challenge' && res.pose) {          /* Step 2/2 */
             if (bannerFor !== res.pose) { showPoseBanner(res.pose, false); bannerFor = res.pose; }
-            setScanStatus((two ? 'Step 1/2 · ' : '') + 'Pose Challenge: ' + res.pose, 'detecting');
+            setScanStatus((two ? 'Step 2/2 · ' : '') + 'Pose Challenge: ' + res.pose, 'detecting');
           } else {
-            setScanStatus((two && res.stage !== 'search' ? 'Step 1/2 · ' : '') + res.message, 'detecting');
+            setScanStatus((two && res.stage !== 'search' ? 'Step 2/2 · ' : '') + res.message, 'detecting');
           }
           await sleep(CFG.gapMs);
           continue;
