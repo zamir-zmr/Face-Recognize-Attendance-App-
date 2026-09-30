@@ -33,6 +33,10 @@ async def lifespan(_: FastAPI):
     except RuntimeError:          # models missing -> fetch once, then retry
         download_models.main()
         engine.load()
+    try:
+        store.purge_orphans(force=True)
+    except Exception as e:  # noqa: BLE001
+        print("[startup] orphan purge failed:", e)
     yield
 
 
@@ -106,6 +110,10 @@ def health():
 
 @app.get("/api/enrolled", dependencies=[Depends(auth)])
 def enrolled():
+    try:
+        store.purge_orphans()
+    except Exception as e:  # noqa: BLE001
+        print("[enrolled] orphan purge failed:", e)
     return {"ids": store.ids()}
 
 
@@ -150,6 +158,9 @@ def enroll(body: EnrollBody):
     mean = np.mean(vecs, axis=0)
     mean = (mean / (np.linalg.norm(mean) + 1e-9)).astype(np.float32)
     other, sim, _ = store.match(mean, exclude=emp_id)
+    if other and sim >= DUPLICATE_SIM and not body.force and store.is_orphan(other):
+        store.delete(other)                    # stale face of a deleted employee must not block enrolment
+        other, sim, _ = store.match(mean, exclude=emp_id)
     if other and sim >= DUPLICATE_SIM and not body.force:
         raise HTTPException(409, "Face already enrolled as %s" % other)
     store.put(emp_id, mean)
@@ -170,6 +181,10 @@ def prune(body: PruneBody):
 
 @app.post("/api/verify/start", dependencies=[Depends(auth)])
 def verify_start():
+    try:
+        store.purge_orphans()
+    except Exception as e:  # noqa: BLE001
+        print("[verify] orphan purge failed:", e)
     return {"session_id": sessions.start().sid}
 
 

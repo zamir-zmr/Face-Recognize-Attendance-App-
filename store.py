@@ -181,12 +181,25 @@ class FirebaseBackend:
 
     def delete(self, emp_id, vecs):
         self.local.delete(emp_id, vecs)
+        key = Firebase.key(emp_id)
         try:
-            self.fb.delete("face_profiles/" + Firebase.key(emp_id))
+            self.fb.delete("face_profiles/" + key)
+        except Exception as e:  # noqa: BLE001
+            print("[store] Firebase profile delete failed:", e)
+        try:                      # legacy / differently keyed nodes that still carry this emp_id
+            for k, p in (self.fb.get("face_profiles") or {}).items():
+                if k != key and isinstance(p, dict) and p.get("emp_id") == emp_id:
+                    self.fb.delete("face_profiles/" + k)
+        except Exception as e:  # noqa: BLE001
+            print("[store] Firebase stray-profile delete failed:", e)
+        try:
             self.fb.delete_image("face_images/%s/profile.jpg" % emp_id)
+        except Exception as e:  # noqa: BLE001
+            print("[store] Firebase image delete failed:", e)
+        try:
             self.fb.touch_meta(len(vecs))
         except Exception as e:  # noqa: BLE001
-            print("[store] Firebase delete failed (removed locally):", e)
+            print("[store] Firebase meta update failed:", e)
 
     def keep_only(self, keep, vecs):
         self.local.keep_only(keep, vecs)
@@ -276,6 +289,8 @@ class Store:
         self._be = _make_backend()
         self.backend = self._be.name
         self._next_check = 0.0
+        self._put_at: dict[str, float] = {}      # recently enrolled ids (employee record may not be saved yet)
+        self._purge_next = 0.0
         self._sig = None
         self._vecs: dict[str, np.ndarray] = {}
         self._snap = ([], np.zeros((0, 128), np.float32))   # (ids, matrix) replaced atomically
@@ -306,6 +321,7 @@ class Store:
                 print("[store] refresh failed:", e)
 
     def put(self, emp_id: str, vec: np.ndarray):
+        self._put_at[emp_id] = time.time()
         with self._lock:
             self._be.put(emp_id, vec, {**self._vecs, emp_id: vec.astype(np.float32)})   # persist first
             self._vecs[emp_id] = vec.astype(np.float32)
@@ -334,6 +350,49 @@ class Store:
                 self._sig = self._be.signature()
                 self._rebuild()
             return dropped
+
+    ORPHAN_GRACE_S = 30 * 60
+
+    def live_employee_ids(self):
+        """Ids of employees that exist in Firebase (not soft-deleted). None if unknown -> never purge on doubt."""
+        if not fb.enabled:
+            return None
+        try:
+            emps = fb.get("employees")
+        except Exception as e:  # noqa: BLE001
+            print("[store] employee list unavailable:", e)
+            return None
+        if not isinstance(emps, dict) or not emps:
+            return None
+        live = set()
+        for k, e in emps.items():
+            if isinstance(e, dict) and not e.get("deleted"):
+                live.add(str(e.get("id") or urllib.parse.unquote(k)))
+        return live or None
+
+    def is_orphan(self, emp_id: str, live=None) -> bool:
+        live = live if live is not None else self.live_employee_ids()
+        if not live or emp_id in live:
+            return False
+        return time.time() - self._put_at.get(emp_id, 0.0) > self.ORPHAN_GRACE_S
+
+    def purge_orphans(self, force: bool = False) -> int:
+        """Delete face embeddings whose employee no longer exists (deleted employees must never be recognised)."""
+        if not force and time.time() < self._purge_next:
+            return 0
+        self._purge_next = time.time() + 20
+        live = self.live_employee_ids()
+        if not live:
+            return 0
+        n = 0
+        for emp_id in [i for i in list(self._vecs) if self.is_orphan(i, live)]:
+            try:
+                if self.delete(emp_id):
+                    n += 1
+                    print("[store] purged orphan face:", emp_id)
+            except Exception as e:  # noqa: BLE001
+                print("[store] orphan purge failed:", emp_id, e)
+        return n
 
     def ids(self) -> list[str]:
         self._maybe_refresh()
