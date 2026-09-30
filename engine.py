@@ -128,19 +128,23 @@ class Engine:
         return self
 
     def _init_hands(self):
-        """Tasks API (mediapipe >= 0.10.30) when hand_landmarker.task exists, legacy mp.solutions only if present."""
+        """Legacy mp.solutions first (mediapipe <= 0.10.21: hand models + GL libs are bundled in the wheel).
+        Tasks API only as fallback (needs hand_landmarker.task AND system libGLESv2/libEGL)."""
         try:
+            if hasattr(mp, "solutions"):
+                h = mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=1, model_complexity=0,
+                                             min_detection_confidence=0.6)
+                print("[engine] MediaPipe Hands (legacy solutions) ready")
+                return h, "legacy"
             if HAND_MODEL.exists():
                 from mediapipe.tasks.python import BaseOptions, vision
                 opts = vision.HandLandmarkerOptions(
                     base_options=BaseOptions(model_asset_path=str(HAND_MODEL)),
                     running_mode=vision.RunningMode.IMAGE, num_hands=1,
                     min_hand_detection_confidence=0.6, min_hand_presence_confidence=0.5, min_tracking_confidence=0.5)
+                h = vision.HandLandmarker.create_from_options(opts)     # may raise (e.g. missing libGLESv2)
                 print("[engine] MediaPipe HandLandmarker (tasks) ready")
-                return vision.HandLandmarker.create_from_options(opts), "tasks"
-            if hasattr(mp, "solutions"):
-                return mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=1, model_complexity=0,
-                                                min_detection_confidence=0.6), "legacy"
+                return h, "tasks"
             self.hands_error = "%s missing - run python download_models.py" % HAND_MODEL.name
             print("[engine] MediaPipe Hands unavailable, finger challenge disabled: %s" % self.hands_error)
         except Exception as e:  # noqa: BLE001

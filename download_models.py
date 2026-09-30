@@ -13,7 +13,6 @@ FALLBACK = {
     "face_detection_yunet_2023mar.onnx": f"{BASE}/face_detection_yunet/face_detection_yunet_2023mar.onnx",
     "face_recognition_sface_2021dec.onnx": f"{BASE}/face_recognition_sface/face_recognition_sface_2021dec.onnx",
 }
-HAND_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
 MIN_BYTES = 50_000  # guards against Git-LFS pointer files / HTML error pages
 
 
@@ -36,22 +35,26 @@ def fetch(name: str, url: str, out: Path) -> bool:
     return True
 
 
-MEDIAPIPE = "mediapipe==0.10.35"
-MP_DEPS = ["absl-py~=2.3", "flatbuffers~=25.9", "matplotlib", "certifi"]
+MEDIAPIPE_VERSION = "0.10.21"   # last release with mp.solutions + bundled hand models + bundled libGLESv2/libEGL (0.10.30+ needs system GL libs)
+MEDIAPIPE = "mediapipe==" + MEDIAPIPE_VERSION
+MP_DEPS = ["absl-py", "attrs>=19.1.0", "flatbuffers>=2.0", "protobuf>=4.25.3,<5", "matplotlib", "numpy<2"]
 
 
 def ensure_mediapipe() -> None:
-    """Build-time self-heal: mediapipe must be installed with --no-deps (its pinned opencv-contrib-python needs libGL)."""
-    def importable() -> bool:
-        return subprocess.call([sys.executable, "-c", "import mediapipe"], stderr=subprocess.DEVNULL) == 0
+    """Build-time self-heal: install the pinned mediapipe with --no-deps (its opencv-contrib-python pin needs libGL)."""
+    probe = "import importlib.metadata as m, mediapipe; print(m.version('mediapipe'))"
 
-    if importable():
-        print("ok   mediapipe already installed")
+    def installed() -> str:
+        r = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ""
+
+    if installed() == MEDIAPIPE_VERSION:
+        print("ok   %s already installed" % MEDIAPIPE)
         return
-    print("mediapipe missing -> installing %s (--no-deps)" % MEDIAPIPE)
+    print("mediapipe %s -> installing %s (--no-deps)" % (installed() or "missing", MEDIAPIPE))
     subprocess.call([sys.executable, "-m", "pip", "install", "-q", *MP_DEPS])
-    subprocess.call([sys.executable, "-m", "pip", "install", "-q", "--no-deps", MEDIAPIPE])
-    print("ok   mediapipe installed" if importable() else "WARNING: mediapipe still not importable -> finger challenge disabled")
+    subprocess.call([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "--force-reinstall", MEDIAPIPE])
+    print("ok   %s installed" % MEDIAPIPE if installed() == MEDIAPIPE_VERSION else "WARNING: mediapipe not importable -> finger challenge disabled")
 
 
 def main() -> int:
@@ -62,8 +65,6 @@ def main() -> int:
     for (n, u), (fn, fu) in zip(FILES.items(), FALLBACK.items()):
         if not fetch(n, u, out):
             ok = fetch(fn, fu, out) and ok
-    if not fetch("hand_landmarker.task", HAND_URL, out):     # finger challenge only: warn, don't fail the build
-        print("WARNING: hand model missing -> finger challenge disabled")
     return 0 if ok else 1
 
 

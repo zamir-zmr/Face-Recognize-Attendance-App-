@@ -2121,6 +2121,7 @@ renderDashboard();
     const e = (h.hands_error || "").toLowerCase();
     if (h.hands_api === "old-engine") return "Old engine.py is still deployed. Push the latest engine.py, then Render → Manual Deploy → Clear build cache & deploy.";
     if (e.includes("hand_landmarker")) return "Model file missing. Add \"python download_models.py\" to the Render Build Command, then Clear build cache & deploy.";
+    if (e.includes("libgles") || e.includes("libegl") || e.includes("libgl.")) return "MediaPipe needs a system GL library that Render does not have. Pin mediapipe==0.10.21 (bundled libs): push the latest download_models.py + requirements.txt, then Clear build cache & deploy.";
     if (e.includes("solutions")) return "MediaPipe is too new for the old API. Deploy the latest engine.py (Tasks API).";
     if (e.includes("import") || e.includes("no module") || e.includes("not installed")) return "MediaPipe is not installed. Build Command must include: pip install --no-deps mediapipe==0.10.35";
     return "Open Render → Logs and search \"MediaPipe\" for the exact error.";
