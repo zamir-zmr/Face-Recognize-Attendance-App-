@@ -97,7 +97,8 @@ def root():
 @app.get("/api/health")
 def health():
     return {"ok": engine.ready, "detector": engine.det_name, "recognizer": engine.rec_name,
-            "enrolled": len(store), "sessions": sessions.BACKEND, "store": store.backend}
+            "enrolled": len(store), "sessions": sessions.BACKEND, "store": store.backend,
+            "hands": getattr(engine, "hands_ready", False), "hands_api": getattr(engine, "_hands_api", "old-engine")}
 
 
 @app.get("/api/enrolled", dependencies=[Depends(auth)])
@@ -110,22 +111,36 @@ def enroll(body: EnrollBody):
     emp_id = body.employee_id.strip()
     if not emp_id or not body.images:
         raise HTTPException(400, "employee_id and images required")
-    vecs = []
+    vecs, reasons = [], []
+    min_score, min_frac = (0.5, 0.06) if body.relaxed else (ENROLL_MIN_SCORE, 0.15)
     for data in body.images[:12]:
-        frame, _, low = prepare(decode(data))
-        faces = engine.detect(frame, low)
-        if not faces:
+        raw = decode(data)
+        found = None
+        for scale in ((1.0, 2.0) if body.relaxed else (1.0,)):      # legacy 160px photos: retry upscaled
+            img = raw if scale == 1.0 else cv2.resize(raw, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+            frame, _, low = prepare(img)
+            faces = engine.detect(frame, low)
+            if faces:
+                found = (frame, faces)
+                break
+        if found is None:
+            reasons.append("no face detected")
             continue
+        frame, faces = found
         f = faces[0]
-        min_score, min_frac = (0.5, 0.08) if body.relaxed else (ENROLL_MIN_SCORE, 0.15)
-        if f[14] < min_score or f[2] < min_frac * frame.shape[1]:
+        if f[14] < min_score:
+            reasons.append("face confidence %.2f too low" % f[14])
+            continue
+        if f[2] < min_frac * frame.shape[1]:
+            reasons.append("face too small in photo")
             continue
         if len(faces) > 1 and faces[1][2] * faces[1][3] > 0.5 * f[2] * f[3]:
+            reasons.append("more than one face")
             continue
         vecs.append(engine.embed(frame, f))
     if not vecs:
-        raise HTTPException(422, "No clear single face found - improve lighting / move closer")
-    if len(vecs) > 1:
+        raise HTTPException(422, "No clear single face found (%s)" % "; ".join(sorted(set(reasons))))
+    if len(vecs) > 1 and not body.relaxed:      # relaxed (distorted legacy variants) skips the cross-check
         sims = np.stack(vecs) @ np.stack(vecs).T
         if float(sims.min()) < 0.35:
             raise HTTPException(422, "Images look like different people")
