@@ -979,6 +979,8 @@ function askConfirm(title, msg, okText){
   });
 }
 let remoteEmp = {}, empReady = false;
+let tomb = {}; const reviveIds = new Set();
+fdb.ref('deleted_employees').on('value', sn => { tomb = sn.val() || {}; }, () => {});
 const logCache = new Map();
 function rerender(){
   if(currentPage === 'dashboard') renderDashboard();
@@ -997,6 +999,8 @@ async function saveEmployees(){
       if(window.faceBackendDelete) window.faceBackendDelete(remoteEmp[k].id);
     }
     for(const [k, e] of next){
+      if(!remoteEmp[k] && tomb[k] && !reviveIds.has(k)) continue;      /* deleted earlier - never silently re-add */
+      if(reviveIds.has(k) && tomb[k]){ try{ await fdb.ref('deleted_employees/' + k).remove(); delete tomb[k]; }catch(_){} }
       const old = remoteEmp[k] || {};
       const ref = fst.ref('face_images/' + k + '/profile.jpg');
       if(/^data:/.test(e.photo || '')){                       /* photo stays in the record (for export/import) + copy in Storage */
@@ -1134,7 +1138,6 @@ function handleKey(k){
   renderDots();
 }
 function renderDots(){
-  keypad.querySelectorAll('button:not(.wide)').forEach(b=>b.classList.toggle('locked', pinBuffer.length >= 4));
   for(let i=0;i<pinDots.length;i++){
     pinDots[i].classList.toggle('on', i < pinBuffer.length);
   }
@@ -1287,9 +1290,20 @@ function renderEmployees(){
   grid.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', async ()=>{
     const de = employees.find(e=>e.id === b.dataset.del);
     if(await askConfirm('Delete employee?', (de ? de.name : 'This employee') + ' will be removed from all devices (profile, photo and face data).', 'Delete')){
-      employees = employees.filter(e=>e.id !== b.dataset.del);
-      saveEmployees(); renderEmployees(); renderDashboard();
+      const did = b.dataset.del, dk = fbKey(did), drec = remoteEmp[dk] || de || {};
+      try{
+        await fdb.ref('employees/' + dk).remove();
+        fdb.ref('deleted_employees/' + dk).set(Date.now()).catch(()=>{});
+        tomb[dk] = Date.now();
+      }catch(err){ toast('Delete failed: ' + err.message, 'err'); return; }
+      employees = employees.filter(e=>e.id !== did);
+      delete remoteEmp[dk];
+      renderEmployees(); renderDashboard();
       toast('Employee deleted', 'ok');
+      fst.ref('face_images/' + dk + '/profile.jpg').delete().catch(()=>{});
+      fdb.ref('face_profiles/' + dk).remove().then(() => fdb.ref('face_profiles').once('value'))
+        .then(sn => fdb.ref('face_meta').set({ count: sn.numChildren(), updated_at: firebase.database.ServerValue.TIMESTAMP })).catch(()=>{});
+      if(window.faceBackendDelete) window.faceBackendDelete(drec.id || did);
     }
   }));
   grid.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click', ()=> openEmpModal(b.dataset.edit)));
@@ -1343,6 +1357,7 @@ document.getElementById('importJsonInput').addEventListener('change', (e)=>{
       });
       renderEmployees();
       renderDashboard();
+      employees.forEach(e => reviveIds.add(fbKey(e.id)));
       saveEmployees().then(ok => { if(ok) toast(`Imported to Firebase: ${addedCount} added, ${updatedCount} updated`, 'ok'); });
     }catch(err){
       toast('Failed to parse JSON file', 'err');
@@ -1568,6 +1583,7 @@ document.getElementById('empSaveBtn').addEventListener('click', ()=>{
     if(employees.some(e=>e.id===id)){ toast('ID already exists.', 'err'); return; }
     employees.push(record);
   }
+  reviveIds.add(fbKey(id));
   saveEmployees(); closeEmpModal(); renderEmployees(); renderDashboard();
   toast('Employee Saved', 'ok');
 });
