@@ -275,6 +275,24 @@ body.white-mode { --oval: #3B82F6; --oval-rgb: 59, 130, 246; }
 .mode-toggle button { padding: 5px 12px; border: none; border-radius: 6px; background: transparent; color: var(--sub); cursor: pointer; font-size: 0.72rem; font-weight: 700; transition: 0.2s; }
 .mode-toggle button.active { background: var(--accent-grad); color: #fff; }
 
+
+/* BULB: mode popup (long-press) */
+.bulb-btn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+#flashModePop {
+  position: fixed; z-index: 100000; display: none; gap: 4px; padding: 5px;
+  background: rgba(15, 23, 42, 0.97); border: 1px solid var(--line-glow); border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); transform: translateX(-50%);
+}
+#flashModePop.open { display: flex; }
+#flashModePop button {
+  border: none; background: transparent; color: var(--sub); padding: 9px 14px; border-radius: 8px;
+  font-size: 0.78rem; font-weight: 800; cursor: pointer; letter-spacing: .3px;
+}
+#flashModePop button.sel { background: var(--accent-grad); color: #fff; }
+body.white-mode #flashModePop { background: #ffffff !important; border: 1px solid #cbd5e1 !important; box-shadow: 0 4px 12px rgba(0,0,0,.15) !important; }
+body.white-mode #flashModePop button { color: #0f172a !important; }
+body.white-mode #flashModePop button.sel { background: var(--accent-grad) !important; color: #fff !important; }
+
 /* BULB FLASHLIGHT BUTTON UI */
 .bulb-btn {
   background: rgba(15, 23, 42, 0.85);
@@ -735,7 +753,7 @@ body.white-mode .scan-status.fail { color: #be123c !important; }
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
                 <span>Start Camera</span>
               </button>
-              <button class="bulb-btn" id="bulbToggleBtn" title="Toggle Flashlight Light">
+              <button class="bulb-btn" id="bulbToggleBtn" title="Tap: toggle flash · Long-press: ON / OFF / AUTO">
                 <svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7zm-3 18a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1H9v1z"/></svg>
               </button>
               <div class="mode-toggle">
@@ -1478,7 +1496,15 @@ function getMatcher(enrolled) {
 }
 
 /* ---------- TORCH (camera flashlight) CONTROL ---------- */
-let torchOverride = null;        /* null = AUTO (night/low-light), true/false = user forced ON/OFF */
+/* Flash mode persisted in localStorage: 'on' | 'off' | 'auto' */
+const FLASH_MODE_KEY = 'flashMode';
+function getFlashMode() {
+  try { const v = localStorage.getItem(FLASH_MODE_KEY); if (v === 'on' || v === 'off' || v === 'auto') return v; } catch (e) {}
+  return 'auto';
+}
+function saveFlashMode(m) { try { localStorage.setItem(FLASH_MODE_KEY, m); } catch (e) {} }
+function flashModeToOverride(m) { return m === 'on' ? true : (m === 'off' ? false : null); }
+let torchOverride = flashModeToOverride(getFlashMode());   /* null = AUTO (night/low-light), true/false = forced ON/OFF */
 let torchApplied = false;        /* real hardware torch state */
 let torchAutoLatched = false;    /* auto turned hardware torch on (stay on: torch itself brightens the frame) */
 let torchBusy = false;
@@ -1511,7 +1537,7 @@ async function applyTorch(state) {
   } finally { torchBusy = false; }
 }
 function releaseTorchState() {
-  torchOverride = null; torchApplied = false; torchAutoLatched = false; torchBusy = false; torchUnsupported = false;
+  torchOverride = flashModeToOverride(getFlashMode()); torchApplied = false; torchAutoLatched = false; torchBusy = false; torchUnsupported = false;
 }
 
 function updateFlashlightState(videoEl) {
@@ -1544,18 +1570,77 @@ function updateFlashlightState(videoEl) {
     flashEl.style.display = 'none';
     document.body.classList.remove('white-mode');
   }
-  if (bulbBtn) bulbBtn.classList.toggle('active', !!want);
+  if (bulbBtn) {
+    bulbBtn.classList.toggle('active', !!want);
+    bulbBtn.dataset.mode = getFlashMode();
+    bulbBtn.title = 'Flash: ' + getFlashMode().toUpperCase() + ' · Tap: toggle · Long-press: ON / OFF / AUTO';
+  }
 }
 
-document.getElementById('bulbToggleBtn').addEventListener('click', ()=>{
-  const video = document.getElementById('video');
-  if (!scanStream) { toast('Start camera first', 'info'); return; }
-  const current = document.getElementById('bulbToggleBtn').classList.contains('active');
-  torchOverride = !current;          /* explicit user choice: ON or OFF */
+function setFlashMode(m) {
+  if (m !== 'on' && m !== 'off' && m !== 'auto') m = 'auto';
+  saveFlashMode(m);
+  torchOverride = flashModeToOverride(m);
   torchAutoLatched = false;
-  manualFlashlightState = torchOverride;
-  updateFlashlightState(video);
+  manualFlashlightState = (m === 'on');
+  updateFlashlightState(document.getElementById('video'));
+}
+
+/* long-press mode popup */
+const flashPop = document.createElement('div');
+flashPop.id = 'flashModePop';
+flashPop.innerHTML = '<button data-m="on">ON</button><button data-m="off">OFF</button><button data-m="auto">AUTO</button>';
+document.body.appendChild(flashPop);
+function closeFlashPop() { flashPop.classList.remove('open'); }
+function openFlashPop() {
+  const btn = document.getElementById('bulbToggleBtn');
+  const r = btn.getBoundingClientRect();
+  const cur = getFlashMode();
+  flashPop.querySelectorAll('button').forEach(b => b.classList.toggle('sel', b.dataset.m === cur));
+  flashPop.classList.add('open');
+  const half = flashPop.offsetWidth / 2;
+  const cx = Math.min(Math.max(r.left + r.width / 2, half + 8), window.innerWidth - half - 8);
+  flashPop.style.left = cx + 'px';
+  flashPop.style.bottom = (window.innerHeight - r.top + 10) + 'px';
+  flashPop.style.top = 'auto';
+}
+flashPop.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-m]');
+  if (!b) return;
+  setFlashMode(b.dataset.m);
+  closeFlashPop();
 });
+document.addEventListener('pointerdown', (e) => {
+  if (flashPop.classList.contains('open') && !flashPop.contains(e.target) && e.target.id !== 'bulbToggleBtn' && !e.target.closest('#bulbToggleBtn')) closeFlashPop();
+}, true);
+
+(function initBulbGestures() {
+  const btn = document.getElementById('bulbToggleBtn');
+  const LONG_MS = 550;
+  let timer = null, longFired = false, startX = 0, startY = 0;
+  const clear = () => { if (timer) { clearTimeout(timer); timer = null; } };
+
+  btn.addEventListener('pointerdown', (e) => {
+    longFired = false;
+    startX = e.clientX; startY = e.clientY;
+    clear();
+    timer = setTimeout(() => { timer = null; longFired = true; if (navigator.vibrate) { try { navigator.vibrate(30); } catch (er) {} } openFlashPop(); }, LONG_MS);
+  });
+  btn.addEventListener('pointermove', (e) => {
+    if (timer && Math.hypot(e.clientX - startX, e.clientY - startY) > 12) clear();
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => btn.addEventListener(ev, clear));
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  /* single tap = instant manual toggle ON/OFF */
+  btn.addEventListener('click', (e) => {
+    if (longFired) { longFired = false; e.preventDefault(); return; }
+    if (flashPop.classList.contains('open')) { closeFlashPop(); return; }
+    if (!scanStream) { toast('Start camera first', 'info'); return; }
+    const isOn = btn.classList.contains('active');
+    setFlashMode(isOn ? 'off' : 'on');
+  });
+})();
 
 function setScanMode(m){
   scanMode = m; localStorage.setItem(LS_MODE, m);

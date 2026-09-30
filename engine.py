@@ -80,9 +80,17 @@ def pose_metrics(face: np.ndarray):
 
 # ---------- fingers (MediaPipe Hands landmarks) ----------
 FINGER_PAIRS = ((8, 6), (12, 10), (16, 14), (20, 18))   # (tip, pip) for index..pinky
-FINGER_MARGIN = 1.05     # tip must be this much farther from wrist than pip
-THUMB_MARGIN = 1.2       # thumb tip vs thumb base, measured from pinky knuckle
-MIN_HAND_FRAC = 0.12     # hand bbox (max side) / frame
+FINGER_MARGIN = 1.10     # tip must be this much farther from wrist than pip (and pip than mcp)
+THUMB_MARGIN = 1.25      # thumb tip vs thumb base, measured from pinky knuckle
+MIN_HAND_FRAC = 0.15     # hand bbox (max side) / frame
+HAND_DET_CONF = 0.80     # min hand detection confidence (strict: only genuine human hands)
+HAND_PRESENCE_CONF = 0.70
+HAND_TRACK_CONF = 0.70
+HAND_MIN_SCORE = 0.80    # handedness/classification score of the detected hand must reach this
+EXT_TIP_MCP_RATIO = 1.65 # extended finger: |tip-mcp| >= 1.65 x |pip-mcp| (curled finger is ~0.6-1.2)
+EXT_TIP_PALM_FRAC = 0.55 # extended finger: |tip-mcp| >= 0.55 x palm length (wrist->middle mcp)
+EXT_STRAIGHT_MIN = 0.80  # tip-mcp distance / (mcp-pip + pip-dip + dip-tip) : finger must be nearly straight
+THUMB_PALM_FRAC = 0.50   # extended thumb: |tip - index mcp| >= 0.5 x palm length
 
 
 # ---------- engine ----------
@@ -137,7 +145,7 @@ class Engine:
                 # static_image_mode=False: palm detector only runs when the hand is lost, otherwise the cheap
                 # landmark tracker follows it from frame to frame -> much faster finger tracking.
                 h = mp.solutions.hands.Hands(static_image_mode=False, max_num_hands=1, model_complexity=0,
-                                             min_detection_confidence=0.6, min_tracking_confidence=0.5)
+                                             min_detection_confidence=HAND_DET_CONF, min_tracking_confidence=HAND_TRACK_CONF)
                 print("[engine] MediaPipe Hands (legacy solutions) ready")
                 return h, "legacy"
             if HAND_MODEL.exists():
@@ -145,7 +153,7 @@ class Engine:
                 opts = vision.HandLandmarkerOptions(
                     base_options=BaseOptions(model_asset_path=str(HAND_MODEL)),
                     running_mode=vision.RunningMode.VIDEO, num_hands=1,   # VIDEO = tracking between frames
-                    min_hand_detection_confidence=0.6, min_hand_presence_confidence=0.5, min_tracking_confidence=0.5)
+                    min_hand_detection_confidence=HAND_DET_CONF, min_hand_presence_confidence=HAND_PRESENCE_CONF, min_tracking_confidence=HAND_TRACK_CONF)
                 h = vision.HandLandmarker.create_from_options(opts)     # may raise (e.g. missing libGLESv2)
                 print("[engine] MediaPipe HandLandmarker (tasks) ready")
                 return h, "tasks"
@@ -173,10 +181,18 @@ class Engine:
                 self._hts = max(self._hts + 1, int(time.monotonic() * 1000))
                 res = self.hands.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), self._hts)
                 lms = res.hand_landmarks[0] if res.hand_landmarks else None
+                try:
+                    score = float(res.handedness[0][0].score) if res.handedness else 1.0
+                except Exception:  # noqa: BLE001
+                    score = 1.0
             else:
                 res = self.hands.process(rgb)
                 lms = res.multi_hand_landmarks[0].landmark if res.multi_hand_landmarks else None
-        if lms is None:
+                try:
+                    score = float(res.multi_handedness[0].classification[0].score) if res.multi_handedness else 1.0
+                except Exception:  # noqa: BLE001
+                    score = 1.0
+        if lms is None or score < HAND_MIN_SCORE:
             return None
         pts = np.array([[p.x, p.y] for p in lms], np.float32)
         x0, y0 = pts.min(axis=0)
@@ -188,11 +204,35 @@ class Engine:
         def d(a, b):
             return float(np.linalg.norm(px[a] - px[b]))
 
+        palm = d(0, 9)                                    # wrist -> middle finger knuckle = hand scale
+        if palm < 1e-3:
+            return None
+        # sanity: a real hand has palm width (index mcp -> pinky mcp) in a plausible ratio to palm length
+        if not (0.35 <= d(5, 17) / palm <= 1.6):
+            return None
+
+        def finger_extended(tip, dip, pip, mcp):
+            """True only for a clearly open finger: long (tip far from knuckle), straight, pointing away from wrist."""
+            tip_mcp = d(tip, mcp)
+            pip_mcp = d(pip, mcp)
+            if pip_mcp < 1e-3:
+                return False
+            path = pip_mcp + d(pip, dip) + d(dip, tip)    # total finger length along the bones
+            return (d(tip, 0) > d(pip, 0) * FINGER_MARGIN            # tip farther from wrist than pip
+                    and d(pip, 0) > d(mcp, 0) * 1.0                  # pip farther than mcp (not hooked back)
+                    and tip_mcp >= pip_mcp * EXT_TIP_MCP_RATIO       # folded finger: tip collapses toward mcp
+                    and tip_mcp >= palm * EXT_TIP_PALM_FRAC          # long enough relative to the hand
+                    and tip_mcp / max(path, 1e-6) >= EXT_STRAIGHT_MIN)  # nearly straight, not curled
+
         ext = []                                          # (name, tip landmark, base landmark)
-        if d(4, 17) > d(2, 17) * THUMB_MARGIN:
+        if (d(4, 17) > d(2, 17) * THUMB_MARGIN
+                and d(4, 5) >= palm * THUMB_PALM_FRAC
+                and d(4, 2) >= d(3, 2) * 1.25
+                and d(4, 5) > d(3, 5)):
             ext.append(("thumb", 4, 2))
-        for name, (tip, pip), mcp in zip(("index", "middle", "ring", "pinky"), FINGER_PAIRS, (5, 9, 13, 17)):
-            if d(tip, 0) > d(pip, 0) * FINGER_MARGIN:
+        for name, (tip, pip), dip, mcp in zip(("index", "middle", "ring", "pinky"), FINGER_PAIRS,
+                                               (7, 11, 15, 19), (5, 9, 13, 17)):
+            if finger_extended(tip, dip, pip, mcp):
                 ext.append((name, tip, mcp))
         fingers = [{"n": n, "tip": [float(pts[t][0]), float(pts[t][1])], "base": [float(pts[m][0]), float(pts[m][1])]}
                    for n, t, m in ext]
