@@ -7,10 +7,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+_MP_ERR = ""
 try:                                   # finger counting (optional: challenge falls back to pose-only if missing)
     import mediapipe as mp
-except Exception:  # noqa: BLE001
+except Exception as _e:  # noqa: BLE001
     mp = None
+    _MP_ERR = "mediapipe import failed: %s" % _e
 
 MODEL_DIR = Path(os.getenv("FACE_MODEL_DIR", Path(__file__).parent / "models"))
 DET_FILES = ["face_detection_yunet_2023mar_int8.onnx", "face_detection_yunet_2023mar.onnx"]
@@ -91,6 +93,7 @@ class Engine:
         self.det_name = self.rec_name = ""
         self.hands = None
         self._hands_api = ""
+        self.hands_error = ""          # why the finger challenge is off (shown in the app popup via /api/health)
         self.hlock = threading.Lock()
         cv2.setNumThreads(int(os.getenv("CV_THREADS", "2")))
 
@@ -115,7 +118,10 @@ class Engine:
                     continue
         if self.detector is None or self.recognizer is None:
             raise RuntimeError("Models missing/unreadable in %s - run: python download_models.py" % MODEL_DIR)
-        if mp is not None and self.hands is None:
+        if mp is None:
+            self.hands_error = _MP_ERR or "mediapipe not installed"
+            print("[engine] finger challenge disabled:", self.hands_error)
+        elif self.hands is None:
             self.hands, self._hands_api = self._init_hands()
         warm = np.zeros((240, 320, 3), np.uint8)   # warm-up so first real request is fast
         self.detect(warm, False)
@@ -135,8 +141,10 @@ class Engine:
             if hasattr(mp, "solutions"):
                 return mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=1, model_complexity=0,
                                                 min_detection_confidence=0.6), "legacy"
-            print("[engine] MediaPipe Hands unavailable, finger challenge disabled: %s missing - run python download_models.py" % HAND_MODEL)
+            self.hands_error = "%s missing - run python download_models.py" % HAND_MODEL.name
+            print("[engine] MediaPipe Hands unavailable, finger challenge disabled: %s" % self.hands_error)
         except Exception as e:  # noqa: BLE001
+            self.hands_error = "hand landmarker init failed: %s" % e
             print("[engine] MediaPipe Hands unavailable, finger challenge disabled:", e)
         return None, ""
 

@@ -2110,12 +2110,51 @@ renderDashboard();
   const statusEl = () => document.getElementById('modelStatus');
   let syncing = false; const syncFailed = new Set();
 
+  /* ---------- finger-challenge health notice ---------- */
+  let handsIssue = null, noticeKey = "";
+  function paintBadge(el) {
+    el.textContent = "Python Face Engine ✓" + (handsIssue ? " · Finger challenge OFF ⚠" : "");
+    el.style.color = handsIssue ? "#f59e0b" : "var(--ok)";
+    el.style.cursor = handsIssue ? "pointer" : "";
+  }
+  function fingerHint(h) {
+    const e = (h.hands_error || "").toLowerCase();
+    if (h.hands_api === "old-engine") return "Old engine.py is still deployed. Push the latest engine.py, then Render → Manual Deploy → Clear build cache & deploy.";
+    if (e.includes("hand_landmarker")) return "Model file missing. Add \"python download_models.py\" to the Render Build Command, then Clear build cache & deploy.";
+    if (e.includes("solutions")) return "MediaPipe is too new for the old API. Deploy the latest engine.py (Tasks API).";
+    if (e.includes("import") || e.includes("no module") || e.includes("not installed")) return "MediaPipe is not installed. Build Command must include: pip install --no-deps mediapipe==0.10.35";
+    return "Open Render → Logs and search \"MediaPipe\" for the exact error.";
+  }
+  function closeFingerNotice() { const n = document.getElementById("fingerNotice"); if (n) n.remove(); }
+  function showFingerNotice(h) {
+    closeFingerNotice();
+    const box = document.createElement("div");
+    box.id = "fingerNotice"; box.setAttribute("role", "alert");
+    box.style.cssText = "position:fixed;left:12px;right:12px;bottom:92px;z-index:99999;max-width:520px;margin:0 auto;padding:14px 16px;border-radius:14px;" +
+      "background:#0f172a;color:#f8fafc;border:1px solid rgba(255,255,255,.12);border-left:4px solid #f59e0b;box-shadow:0 12px 32px rgba(0,0,0,.45);font:14px/1.45 system-ui,sans-serif";
+    const t = document.createElement("div"); t.style.cssText = "font-weight:700;margin-bottom:6px"; t.textContent = "⚠ Finger challenge is not available";
+    const why = document.createElement("div"); why.style.cssText = "color:#cbd5e1;word-break:break-word"; why.textContent = "Reason: " + (h.hands_error || "engine reports finger detection is off");
+    const fix = document.createElement("div"); fix.style.cssText = "margin-top:6px;color:#fbbf24"; fix.textContent = "Fix: " + fingerHint(h);
+    const row = document.createElement("div"); row.style.cssText = "display:flex;gap:8px;margin-top:10px;justify-content:flex-end";
+    const mk = (label, fn, primary) => { const b = document.createElement("button"); b.textContent = label; b.onclick = fn;
+      b.style.cssText = "padding:8px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.15);font-weight:600;cursor:pointer;" + (primary ? "background:#0ea5e9;color:#fff;border-color:transparent" : "background:transparent;color:#f8fafc"); return b; };
+    row.append(mk("Recheck", () => { closeFingerNotice(); noticeKey = ""; ping(); }, true), mk("Close", closeFingerNotice, false));
+    box.append(t, why, fix, row);
+    document.body.appendChild(box);
+  }
+  { const el0 = document.getElementById("modelStatus"); if (el0) el0.addEventListener("click", () => { if (handsIssue) showFingerNotice(handsIssue); }); }
+
   async function ping() {
     try {
       const h = await api('/api/health', {}, 2500);
       backend.ok = !!h.ok;
       const el = statusEl();
-      if (backend.ok && el && !syncing) { el.textContent = 'Python Face Engine ✓'; el.style.color = 'var(--ok)'; }
+      handsIssue = (backend.ok && h.hands === false) ? h : null;
+      if (backend.ok && el && !syncing) paintBadge(el);
+      if (handsIssue) {
+        const key = (h.hands_api || "") + "|" + (h.hands_error || "");
+        if (key !== noticeKey) { noticeKey = key; showFingerNotice(h); }
+      } else { noticeKey = ""; closeFingerNotice(); }
       /* server lost its embeddings (restart / ephemeral disk) or never had them -> rebuild from stored photos */
       if (backend.ok && h.enrolled < employees.filter(e => e.photo && !syncFailed.has(e.id)).length) syncMissing();
     } catch (e) { backend.ok = false; }
@@ -2128,7 +2167,7 @@ renderDashboard();
       im.onload = () => {
         const w = im.naturalWidth, h = im.naturalHeight, out = [];
         /* snapshotToDataUrl() squashed the video into 160x160 -> restore 4:3 and 16:9 geometry and upscale */
-        const sizes = (w === h && w <= 200) ? [[320, 240], [356, 200]] : [[Math.min(w, 640), Math.round(h * Math.min(w, 640) / w)]];
+        const sizes = (w === h && w <= 200) ? [[320, 240], [356, 200], [320, 320]] : [[Math.min(w, 640), Math.round(h * Math.min(w, 640) / w)]];
         for (const [tw, th] of sizes) {
           const c = document.createElement('canvas'); c.width = tw; c.height = th;
           const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(im, 0, 0, tw, th);
@@ -2148,23 +2187,23 @@ renderDashboard();
     try {
       const have = new Set((await api('/api/enrolled')).ids);
       const todo = employees.filter(e => e.photo && !have.has(e.id) && !syncFailed.has(e.id));
-      let ok = 0;
+      let ok = 0; const why = [];
       for (let i = 0; i < todo.length; i++) {
         if (el) { el.textContent = 'Syncing faces ' + (i + 1) + '/' + todo.length + '…'; el.style.color = ''; }
         try {
           const images = await photoToFrames(todo[i].photo);
           await api('/api/enroll', { method: 'POST', body: JSON.stringify({ employee_id: todo[i].id, images, force: true, relaxed: true }) }, 20000);
           ok++;
-        } catch (err) { syncFailed.add(todo[i].id); console.warn('face sync failed', todo[i].id, err.message); }
+        } catch (err) { syncFailed.add(todo[i].id); why.push((todo[i].name || todo[i].id) + ': ' + (err.name === 'AbortError' ? 'server timeout' : err.message)); console.warn('face sync failed', todo[i].id, err.message); }
       }
       if (todo.length) {
         const bad = todo.length - ok;
-        toast(ok + ' face record' + (ok === 1 ? '' : 's') + ' synced to server' + (bad ? ' · ' + bad + ' need re-enrollment (Edit → capture)' : ''), bad ? 'err' : 'ok');
+        toast((ok ? ok + ' synced to server' : '') + (ok && bad ? ' · ' : '') + (bad ? bad + ' need re-enrollment (Edit → capture) — ' + why[0] : ''), bad ? 'err' : 'ok');
       }
     } catch (e) { console.warn('sync error', e.message); }
     finally {
       syncing = false;
-      if (el && backend.ok) { el.textContent = 'Python Face Engine ✓'; el.style.color = 'var(--ok)'; }
+      if (el && backend.ok) paintBadge(el);
     }
   }
   ping(); setInterval(ping, 20000);
