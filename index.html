@@ -659,6 +659,28 @@ body.white-mode .scan-status.fail { color: #be123c !important; }
   .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 0.65rem; padding: 6px 2px; border-radius: 8px; }
   main { padding: 16px 12px 80px; height: auto; }
 }
+.keypad button.locked { opacity: .3; pointer-events: none; }
+.cf-bg { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(2,6,23,.55); backdrop-filter: blur(6px); opacity: 0; pointer-events: none; transition: opacity .25s; }
+.cf-bg.show { opacity: 1; pointer-events: auto; }
+.cf-card { width: 100%; max-width: 340px; padding: 26px 22px 20px; text-align: center; border-radius: 22px; background: var(--panel-glass, #0f172a);
+  border: 1px solid var(--line); color: var(--text); box-shadow: 0 24px 60px rgba(0,0,0,.45); transform: translateY(24px) scale(.88); opacity: 0;
+  transition: transform .35s cubic-bezier(.34,1.56,.64,1), opacity .25s; }
+.cf-bg.show .cf-card { transform: none; opacity: 1; }
+.cf-ico { width: 64px; height: 64px; margin: 0 auto 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: rgba(244,63,94,.12); color: var(--danger); box-shadow: 0 0 0 0 rgba(244,63,94,.35); }
+.cf-bg.show .cf-ico { animation: cfPulse 1.6s ease-out .3s infinite; }
+.cf-bg.show .cf-ico svg { animation: cfShake .6s ease .35s; }
+.cf-ico svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.cf-t { font-size: 1.15rem; font-weight: 800; margin-bottom: 6px; }
+.cf-m { font-size: .86rem; color: var(--sub); line-height: 1.45; margin-bottom: 20px; word-break: break-word; }
+.cf-row { display: flex; gap: 10px; }
+.cf-row button { flex: 1; padding: 12px; border-radius: 12px; font-weight: 700; font-size: .9rem; cursor: pointer; border: 1px solid var(--line);
+  background: transparent; color: var(--text); transition: transform .15s, filter .15s; }
+.cf-row button:active { transform: scale(.96); }
+.cf-row .cf-ok { background: linear-gradient(135deg,#f43f5e,#e11d48); border-color: transparent; color: #fff; box-shadow: 0 8px 20px rgba(244,63,94,.35); }
+@keyframes cfPulse { 0%{box-shadow:0 0 0 0 rgba(244,63,94,.35)} 100%{box-shadow:0 0 0 18px rgba(244,63,94,0)} }
+@keyframes cfShake { 0%,100%{transform:rotate(0)} 20%{transform:rotate(-14deg)} 40%{transform:rotate(12deg)} 60%{transform:rotate(-8deg)} 80%{transform:rotate(5deg)} }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
 </head>
@@ -830,7 +852,7 @@ body.white-mode .scan-status.fail { color: #be123c !important; }
           <button data-f="custom">Custom Date</button>
           <input type="date" id="customDate" style="display:none;">
         </div>
-        <button class="big-btn secondary" id="exportCsvBtn" style="width:auto;padding:6px 14px;font-size:0.78rem;">📥 Export CSV</button>
+        <button class="big-btn secondary" id="exportCsvBtn" style="width:auto;padding:6px 14px;font-size:0.78rem;">📥 Export Excel</button>
       </div>
       <div class="emp-toolbar" style="margin-bottom:12px;">
         <input type="text" id="reportSearch" placeholder="Filter logs by name or ID…" style="width:100%;">
@@ -907,6 +929,7 @@ body.white-mode .scan-status.fail { color: #be123c !important; }
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script>
 const LS_EMP = 'minmoe_employees';
 const LS_LOG = 'minmoe_logs';
@@ -942,6 +965,19 @@ const fdb = firebase.database(), fst = firebase.storage();
 const fbKey = s => encodeURIComponent(String(s)).replace(/\./g, '%2E');
 const clean = o => JSON.parse(JSON.stringify(o, (k, v) => (v === null || v === '' ? undefined : v)));
 const sj = o => JSON.stringify(o, Object.keys(o).sort());
+function askConfirm(title, msg, okText){
+  return new Promise(res => {
+    const bg = document.createElement('div'); bg.className = 'cf-bg';
+    bg.innerHTML = '<div class="cf-card"><div class="cf-ico"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v5M14 11v5"/></svg></div><div class="cf-t"></div><div class="cf-m"></div><div class="cf-row"><button class="cf-no">Cancel</button><button class="cf-ok"></button></div></div>';
+    bg.querySelector('.cf-t').textContent = title; bg.querySelector('.cf-m').textContent = msg; bg.querySelector('.cf-ok').textContent = okText || 'Delete';
+    document.body.appendChild(bg);
+    requestAnimationFrame(() => requestAnimationFrame(() => bg.classList.add('show')));
+    const done = v => { bg.classList.remove('show'); setTimeout(() => bg.remove(), 300); res(v); };
+    bg.querySelector('.cf-no').onclick = () => done(false);
+    bg.querySelector('.cf-ok').onclick = () => done(true);
+    bg.addEventListener('click', e => { if(e.target === bg) done(false); });
+  });
+}
 let remoteEmp = {}, empReady = false;
 const logCache = new Map();
 function rerender(){
@@ -954,18 +990,21 @@ async function saveEmployees(){
     const next = new Map(employees.map(e => [fbKey(e.id), e]));
     for(const k of Object.keys(remoteEmp)){
       if(next.has(k)) continue;
-      fdb.ref('employees/' + k).remove();
+      await fdb.ref('employees/' + k).remove();
       fst.ref('face_images/' + k + '/profile.jpg').delete().catch(()=>{});
+      fdb.ref('face_profiles/' + k).remove().then(() => fdb.ref('face_profiles').once('value'))
+        .then(s => fdb.ref('face_meta').set({ count: s.numChildren(), updated_at: firebase.database.ServerValue.TIMESTAMP })).catch(()=>{});
       if(window.faceBackendDelete) window.faceBackendDelete(remoteEmp[k].id);
     }
     for(const [k, e] of next){
-      if(/^data:/.test(e.photo || '')){
-        try{
-          const r = fst.ref('face_images/' + k + '/profile.jpg');
-          await r.putString(e.photo, 'data_url');
-          e.photo = await r.getDownloadURL();
-        }catch(pe){ toast('Photo upload failed (Storage rules?) - saved inside record', 'err'); }   /* never lose the employee */
-      }
+      const old = remoteEmp[k] || {};
+      const ref = fst.ref('face_images/' + k + '/profile.jpg');
+      if(/^data:/.test(e.photo || '')){                       /* photo stays in the record (for export/import) + copy in Storage */
+        if(e.photo !== old.photo || !e.photoUrl){
+          try{ await ref.putString(e.photo, 'data_url'); e.photoUrl = await ref.getDownloadURL(); }
+          catch(pe){ toast('Photo copy to Storage failed (kept in record)', 'err'); }
+        }
+      } else if(!e.photo && old.photoUrl){ ref.delete().catch(()=>{}); delete e.photoUrl; }
       const rec = clean(e);
       if(!remoteEmp[k] || sj(rec) !== sj(remoteEmp[k])) await fdb.ref('employees/' + k).set(rec);
     }
@@ -1092,10 +1131,10 @@ function handleKey(k){
   if(k==='⌫'){ pinBuffer = pinBuffer.slice(0,-1); }
   else if(k==='OK'){ tryUnlock(); return; }
   else if(pinBuffer.length < 4){ pinBuffer += k; }
-  else { gateMsg.textContent = 'PIN is exactly 4 digits'; setTimeout(()=>gateMsg.textContent='', 1200); }
   renderDots();
 }
 function renderDots(){
+  keypad.querySelectorAll('button:not(.wide)').forEach(b=>b.classList.toggle('locked', pinBuffer.length >= 4));
   for(let i=0;i<pinDots.length;i++){
     pinDots[i].classList.toggle('on', i < pinBuffer.length);
   }
@@ -1245,8 +1284,9 @@ function renderEmployees(){
     </div>
   `).join('') : `<div class="empty">No employees found.</div>`;
 
-  grid.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', ()=>{
-    if(confirm('Delete employee record?')){
+  grid.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', async ()=>{
+    const de = employees.find(e=>e.id === b.dataset.del);
+    if(await askConfirm('Delete employee?', (de ? de.name : 'This employee') + ' will be removed from all devices (profile, photo and face data).', 'Delete')){
       employees = employees.filter(e=>e.id !== b.dataset.del);
       saveEmployees(); renderEmployees(); renderDashboard();
       toast('Employee deleted', 'ok');
@@ -1260,7 +1300,8 @@ document.getElementById('empSearch').addEventListener('input', renderEmployees);
 document.getElementById('exportJsonBtn').addEventListener('click', async ()=>{
   const byId = new Map(employees.map(e => [e.id, e]));              /* what the app shows now */
   try{ Object.values((await fdb.ref('employees').once('value')).val() || {}).forEach(e => byId.set(e.id, { ...byId.get(e.id), ...e })); }catch(e){}   /* + Firebase copy */
-  const cleanEmployees = [...byId.values()].map(e => /^data:/.test(e.photo || '') ? (({ photo, ...r }) => r)(e) : e);
+  const toData = u => fetch(u).then(r => r.blob()).then(b => new Promise(ok => { const f = new FileReader(); f.onload = () => ok(f.result); f.readAsDataURL(b); })).catch(() => u);
+  const cleanEmployees = await Promise.all([...byId.values()].map(async ({ photoUrl, ...e }) => (e.photo && !/^data:/.test(e.photo)) ? { ...e, photo: await toData(e.photo) } : e));
   if(!cleanEmployees.length){ toast('No employee records to export', 'err'); return; }
   const jsonStr = JSON.stringify(cleanEmployees, null, 2);
   const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -2252,19 +2293,39 @@ document.getElementById('reportSearch').addEventListener('input', renderReports)
 document.getElementById('exportCsvBtn').addEventListener('click', async ()=>{
   try{ putLogs((await fdb.ref('attendance_logs').once('value')).val() || {}); }catch(e){ toast('Firebase: ' + e.message, 'err'); }
   if(!logs.length){ toast('No attendance logs to export.', 'err'); return; }
-  let csv = 'Employee ID,Name,Date,IN Time,OUT Time,Status,Verification Method\n';
-  [...logs].sort((a,b)=>(b.lastUpdated||0)-(a.lastUpdated||0)).forEach(l => {
-    const status = l.exit ? 'OUT' : 'IN';
-    const combinedMethod = l.method || (l.inMethod && l.outMethod ? `${l.inMethod} + ${l.outMethod}` : (l.inMethod || l.outMethod || 'Manual'));
-    csv += `"${l.empId}","${l.name}","${l.date}","${l.entrance||''}","${l.exit||''}","${status}","${combinedMethod}"\n`;
+  const rows = [...logs].sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.lastUpdated||0)-(a.lastUpdated||0)).map(l => [
+    l.empId, l.name, l.date, l.entrance || '', l.exit || '', l.exit ? 'OUT' : 'IN',
+    l.method || (l.inMethod && l.outMethod ? `${l.inMethod} + ${l.outMethod}` : (l.inMethod || l.outMethod || 'Manual'))]);
+  const head = ['Employee ID','Name','Date','IN Time','OUT Time','Status','Verification Method'];
+  const save = (blob, ext) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `Attendance_Report_${todayStr()}.${ext}`; a.click(); };
+  if(typeof ExcelJS === 'undefined'){
+    save(new Blob([[head, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n')], {type:'text/csv;charset=utf-8;'}), 'csv');
+    toast('Excel library offline - CSV downloaded', 'info'); return;
+  }
+  const wb = new ExcelJS.Workbook(); wb.creator = 'Attendance System';
+  const ws = wb.addWorksheet('Attendance', { views: [{ state: 'frozen', ySplit: 1 }] });
+  const edge = { style: 'thin', color: { argb: 'FFCBD5E1' } }, box = { top: edge, left: edge, bottom: edge, right: edge };
+  ws.columns = [14, 24, 13, 13, 13, 11, 30].map((w, i) => ({ header: head[i], width: w }));
+  rows.forEach(r => ws.addRow(r));
+  const hr = ws.getRow(1); hr.height = 26;
+  hr.eachCell(c => { c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+    c.alignment = { vertical: 'middle', horizontal: 'center' }; c.border = { top: { style: 'thin', color: { argb: 'FF1E3A8A' } }, bottom: { style: 'medium', color: { argb: 'FF1E3A8A' } }, left: edge, right: edge }; });
+  ws.eachRow((row, n) => {
+    if(n === 1) return;
+    row.height = 20;
+    row.eachCell({ includeEmpty: true }, (c, col) => {
+      c.border = box; c.alignment = { vertical: 'middle', horizontal: col === 2 || col === 7 ? 'left' : 'center', indent: col === 2 || col === 7 ? 1 : 0 };
+      c.font = { size: 10.5, bold: col === 2, color: { argb: 'FF0F172A' } };
+      if(n % 2 === 0) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+    });
+    const s = row.getCell(6), isIn = s.value === 'IN';
+    s.font = { bold: true, size: 10.5, color: { argb: isIn ? 'FF92400E' : 'FF166534' } };
+    s.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isIn ? 'FFFEF3C7' : 'FFDCFCE7' } };
   });
-  const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `Attendance_Report_${todayStr()}.csv`;
-  a.click();
-  toast('CSV Report Downloaded', 'ok');
+  ws.autoFilter = { from: 'A1', to: 'G1' };
+  ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
+  save(new Blob([await wb.xlsx.writeBuffer()], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'xlsx');
+  toast('Excel Report Downloaded', 'ok');
 });
 
 /* INITIALIZATION */
