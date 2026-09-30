@@ -101,7 +101,7 @@ def health():
             "enrolled": len(store), "sessions": sessions.BACKEND, "store": store.backend,
             "hands": getattr(engine, "hands_ready", False), "hands_api": getattr(engine, "_hands_api", "old-engine"),
             "hands_error": getattr(engine, "hands_error", ""),
-            "python": platform.python_version()}
+            "python": platform.python_version(), "firebase": store.backend == "firebase"}
 
 
 @app.get("/api/enrolled", dependencies=[Depends(auth)])
@@ -179,3 +179,38 @@ def verify_frame(body: FrameBody):
     if res is None:
         raise HTTPException(404, "Unknown or expired session")
     return res
+
+
+# ---------- Firebase business data (employees, attendance logs, dashboard) ----------
+@app.get("/api/dashboard", dependencies=[Depends(auth)])
+def dashboard():
+    return store.dashboard()
+
+
+@app.get("/api/employees", dependencies=[Depends(auth)])
+def employees_list():
+    return {"employees": store.get_employees()}
+
+
+@app.put("/api/employees/{employee_id}", dependencies=[Depends(auth)])
+def employee_put(employee_id: str, body: dict):
+    return {"ok": store.upsert_employee(employee_id, body)}
+
+
+@app.delete("/api/employees/{employee_id}", dependencies=[Depends(auth)])
+def employee_delete(employee_id: str):
+    store.delete(employee_id)                       # face embedding (+ image) too
+    return {"ok": store.delete_employee(employee_id)}
+
+
+@app.get("/api/logs", dependencies=[Depends(auth)])
+def logs_range(start: str, end: str = ""):
+    return {"logs": store.get_logs(start, end or start)}
+
+
+@app.post("/api/attendance", dependencies=[Depends(auth)])
+def attendance_add(body: dict):
+    emp = str(body.get("empId") or body.get("employee_id") or "").strip()
+    if not emp:
+        raise HTTPException(400, "empId required")
+    return {"ok": store.log_attendance(emp, body)}

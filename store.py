@@ -387,8 +387,34 @@ class Store:
         return self._sync(lambda: fb.delete("employees/" + Firebase.key(emp_id)), "employee delete")
 
     def log_attendance(self, emp_id: str, data: dict) -> bool:
-        rec = {**data, "employee_id": emp_id, "ts": data.get("ts") or int(time.time() * 1000)}
-        return self._sync(lambda: fb.push("attendance_logs", rec), "attendance log")
+        """Stored by date: attendance_logs/<YYYY-MM-DD>/<id> (same layout as the web app -> cheap date-range queries)."""
+        now = int(time.time() * 1000)
+        rec = {**data, "empId": emp_id, "employee_id": emp_id, "lastUpdated": data.get("lastUpdated") or now}
+        day = rec.get("date") or time.strftime("%Y-%m-%d", time.gmtime())
+        rec["date"] = day
+        lid = Firebase.key(rec.pop("id", None) or "%x%s" % (now, os.urandom(2).hex()))
+        return self._sync(lambda: fb.put("attendance_logs/%s/%s" % (day, lid), rec), "attendance log")
+
+    def get_employees(self) -> list:
+        return list((fb.get("employees") or {}).values()) if fb.enabled else []
+
+    def get_logs(self, start: str, end: str) -> list:
+        if not fb.enabled:
+            return []
+        by_date = fb.get("attendance_logs", orderBy='"$key"', startAt='"%s"' % start, endAt='"%s"' % end) or {}
+        return [{**l, "id": i, "date": d} for d, items in by_date.items() for i, l in (items or {}).items()]
+
+    def dashboard(self) -> dict:
+        today = time.strftime("%Y-%m-%d", time.gmtime())
+        emps = list((fb.get("employees") or {}).values()) if fb.enabled else []
+        todays = [{**l, "id": i} for i, l in ((fb.get("attendance_logs/" + today) or {}).items() if fb.enabled else [])]
+        meta = (fb.get("face_meta") or {}) if fb.enabled else {}
+        recent = sorted(todays, key=lambda l: l.get("lastUpdated", 0), reverse=True)[:8]
+        return {"registered": len(emps), "checked_in": sum(1 for l in todays if l.get("entrance")),
+                "checked_out": sum(1 for l in todays if l.get("exit")),
+                "face_enrolled": max(sum(1 for e in emps if e.get("descriptor")), int(meta.get("count") or 0)),
+                "recent": [{"name": l.get("name"), "id": l.get("empId"), "date": l.get("date"),
+                            "time": l.get("exit") or l.get("entrance")} for l in recent]}
 
     def add_history(self, emp_id: str, event: str, data: dict | None = None) -> bool:
         rec = {**(data or {}), "employee_id": emp_id, "event": event, "ts": int(time.time() * 1000)}

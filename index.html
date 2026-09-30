@@ -778,7 +778,7 @@ body.white-mode .scan-status.fail { color: #be123c !important; }
               <div class="vtab" data-v="fp">Fingerprint</div>
             </div>
             <div id="vpin">
-              <input type="text" inputmode="numeric" maxlength="6" class="pin-input" id="attPin" placeholder="••••">
+              <input type="text" inputmode="numeric" maxlength="4" class="pin-input" id="attPin" placeholder="••••">
               <button class="big-btn secondary" id="pinVerifyBtn">Verify PIN</button>
             </div>
             <div id="vfp" style="display:none;">
@@ -860,7 +860,7 @@ body.white-mode .scan-status.fail { color: #be123c !important; }
         <div class="field"><label>Full Name</label><input type="text" id="fEmpName" placeholder="e.g. Rashid Al-Habsi"></div>
         <div class="field-row">
           <div class="field"><label>Department</label><input type="text" id="fEmpDept" placeholder="e.g. Bakery"></div>
-          <div class="field"><label>Access PIN (4–6 digits)</label><input type="text" inputmode="numeric" id="fEmpPin" placeholder="1234"></div>
+          <div class="field"><label>Access PIN (exactly 4 digits)</label><input type="text" inputmode="numeric" maxlength="4" id="fEmpPin" placeholder="1234"></div>
         </div>
       </div>
 
@@ -904,6 +904,9 @@ body.white-mode .scan-status.fail { color: #be123c !important; }
 
 <div class="toast-host" id="toastHost"></div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script>
 const LS_EMP = 'minmoe_employees';
 const LS_LOG = 'minmoe_logs';
@@ -911,8 +914,8 @@ const LS_PIN = 'minmoe_admin_pin';
 const LS_MODE = 'minmoe_scan_mode';
 const FACE_MATCH_THRESHOLD = 0.52;
 
-let employees = JSON.parse(localStorage.getItem(LS_EMP) || '[]');
-let logs = JSON.parse(localStorage.getItem(LS_LOG) || '[]');
+let employees = [];
+let logs = [];
 let adminPin = localStorage.getItem(LS_PIN) || '1234';
 let isAdminUnlocked = false;
 let pendingPageTarget = null;
@@ -924,8 +927,100 @@ let manualFlashlightState = false;
 let lastToastMessage = '';
 let lastToastTime = 0;
 
-function saveEmployees(){ localStorage.setItem(LS_EMP, JSON.stringify(employees)); }
-function saveLogs(){ localStorage.setItem(LS_LOG, JSON.stringify(logs)); }
+/* ===== FIREBASE SYNC (business data only: employees, face data, attendance logs, photos). PIN / flashlight / camera / UI state stay local ===== */
+const FB_CONFIG = {
+  apiKey: "AIzaSyA0rirztMO13FyXcKYz1aEB1ERYH-HQUbA",
+  authDomain: "sweethouse-e3e49.firebaseapp.com",
+  databaseURL: "https://sweethouse-e3e49-default-rtdb.firebaseio.com",
+  projectId: "sweethouse-e3e49",
+  storageBucket: "sweethouse-e3e49.firebasestorage.app",
+  messagingSenderId: "579322038108",
+  appId: "1:579322038108:web:166b7fdb103080f56d6399"
+};
+firebase.initializeApp(FB_CONFIG);
+const fdb = firebase.database(), fst = firebase.storage();
+const fbKey = s => encodeURIComponent(String(s)).replace(/\./g, '%2E');
+const clean = o => JSON.parse(JSON.stringify(o, (k, v) => (v === null || v === '' ? undefined : v)));
+const sj = o => JSON.stringify(o, Object.keys(o).sort());
+let remoteEmp = {}, empReady = false;
+const logCache = new Map();
+function rerender(){
+  if(currentPage === 'dashboard') renderDashboard();
+  if(currentPage === 'employees') renderEmployees();
+  if(currentPage === 'reports') renderReports();
+}
+async function saveEmployees(){
+  try{
+    const next = new Map(employees.map(e => [fbKey(e.id), e]));
+    for(const k of Object.keys(remoteEmp)){
+      if(next.has(k)) continue;
+      fdb.ref('employees/' + k).remove();
+      fst.ref('face_images/' + k + '/profile.jpg').delete().catch(()=>{});
+      if(window.faceBackendDelete) window.faceBackendDelete(remoteEmp[k].id);
+    }
+    for(const [k, e] of next){
+      if(/^data:/.test(e.photo || '')){
+        const r = fst.ref('face_images/' + k + '/profile.jpg');
+        await r.putString(e.photo, 'data_url');
+        e.photo = await r.getDownloadURL();
+      }
+      const rec = clean(e);
+      if(!remoteEmp[k] || sj(rec) !== sj(remoteEmp[k])) await fdb.ref('employees/' + k).set(rec);
+    }
+  }catch(err){ toast('Firebase sync failed: ' + err.message, 'err'); }
+}
+function saveLogs(entry){
+  if(!entry) return;
+  if(!entry.id) entry.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  fdb.ref('attendance_logs/' + entry.date + '/' + entry.id).set(clean(entry)).catch(err => toast('Firebase sync failed: ' + err.message, 'err'));
+}
+function putLogs(byDate, dates){
+  [...new Set(dates || Object.keys(byDate))].forEach(d => {
+    for(const [id, l] of [...logCache]) if(l.date === d) logCache.delete(id);
+    Object.entries(byDate[d] || {}).forEach(([id, l]) => logCache.set(id, { ...l, id, date: d }));
+  });
+  logs = [...logCache.values()];
+}
+fdb.ref('employees').on('value', snap => {
+  remoteEmp = snap.val() || {};
+  employees = Object.values(remoteEmp).map(e => ({ ...e }));
+  if(!empReady){ empReady = true; migrateLocal(); }
+  rerender();
+}, err => toast('Firebase: ' + err.message, 'err'));
+function migrateLocal(){           /* one-time upload of data previously kept in this browser */
+  if(localStorage.getItem('fb_migrated')) return;
+  try{
+    const le = JSON.parse(localStorage.getItem(LS_EMP) || '[]');
+    const ll = JSON.parse(localStorage.getItem(LS_LOG) || '[]');
+    if(le.length && !Object.keys(remoteEmp).length){ employees = le; saveEmployees(); }
+    ll.forEach(l => { if(l.date){ l.id = l.id || ('m' + (l.lastUpdated || 0).toString(36) + fbKey(l.empId)); saveLogs(l); } });
+    localStorage.setItem('fb_migrated', '1');
+  }catch(e){}
+}
+let todayRef = null, watchedDay = '';
+function watchToday(){
+  const d = todayStr();
+  if(d === watchedDay) return;
+  if(todayRef) todayRef.off();
+  watchedDay = d;
+  todayRef = fdb.ref('attendance_logs/' + d);
+  todayRef.on('value', s => { putLogs({ [d]: s.val() || {} }); rerender(); });
+}
+watchToday(); setInterval(watchToday, 60000);
+async function fetchRange(){
+  const t = todayStr(); let a, b;
+  if(activeFilter === 'today') a = b = t;
+  else if(activeFilter === 'yesterday'){ const y = new Date(); y.setDate(y.getDate() - 1); a = b = y.toISOString().slice(0, 10); }
+  else if(activeFilter === 'month'){ a = t.slice(0, 7) + '-01'; b = t.slice(0, 7) + '-31'; }
+  else { a = b = document.getElementById('customDate').value; if(!a) return; }
+  const snap = await fdb.ref('attendance_logs').orderByKey().startAt(a).endAt(b).once('value');
+  const v = snap.val() || {};
+  putLogs(v, Object.keys(v).concat(a === b ? [a] : []));
+}
+async function refreshReports(){
+  try{ await fetchRange(); }catch(e){ toast('Firebase: ' + e.message, 'err'); }
+  renderReports();
+}
 
 const CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
 
@@ -985,7 +1080,8 @@ keys.forEach(k=>{
 function handleKey(k){
   if(k==='⌫'){ pinBuffer = pinBuffer.slice(0,-1); }
   else if(k==='OK'){ tryUnlock(); return; }
-  else if(pinBuffer.length < 6){ pinBuffer += k; }
+  else if(pinBuffer.length < 4){ pinBuffer += k; }
+  else { gateMsg.textContent = 'PIN is exactly 4 digits'; setTimeout(()=>gateMsg.textContent='', 1200); }
   renderDots();
 }
 function renderDots(){
@@ -1046,7 +1142,7 @@ function navigateToPage(pageName){
 
   if(pageName==='dashboard') renderDashboard();
   if(pageName==='employees') renderEmployees();
-  if(pageName==='reports') renderReports();
+  if(pageName==='reports') refreshReports();
 }
 
 document.querySelectorAll('.nav-item').forEach(item=>{
@@ -1110,7 +1206,7 @@ function renderDashboard(){
   document.getElementById('statOutToday').textContent = todays.filter(l=>l.exit).length;
   document.getElementById('statFaceReg').textContent = employees.filter(e=>e.descriptor).length;
 
-  const recent = [...logs].reverse().slice(0,8);
+  const recent = logs.filter(l=>l.date===todayStr()).sort((a,b)=>(b.lastUpdated||0)-(a.lastUpdated||0)).slice(0,8);
   const body = document.getElementById('dashRecentBody');
   body.innerHTML = recent.length ? recent.map(r=>{
     const status = r.exit ? 'OUT' : 'IN';
@@ -1122,7 +1218,7 @@ function renderDashboard(){
 
 /* EMPLOYEES */
 function renderEmployees(){
-  const q = (document.getElementById('empSearch').value || '').toLowerCase();
+  const q = (document.getElementById('empSearch').value || '').trim().replace(/\s+/g,' ').toLowerCase();
   const grid = document.getElementById('empGrid');
   const filtered = employees.filter(e => e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q));
   grid.innerHTML = filtered.length ? filtered.map(e=>`
@@ -1150,9 +1246,10 @@ function renderEmployees(){
 document.getElementById('empSearch').addEventListener('input', renderEmployees);
 
 /* EMPLOYEE DATA JSON IMPORT & EXPORT */
-document.getElementById('exportJsonBtn').addEventListener('click', ()=>{
-  if(!employees.length){ toast('No employee records to export', 'err'); return; }
-  const cleanEmployees = employees.map(({ descriptor, photo, ...rest }) => rest);
+document.getElementById('exportJsonBtn').addEventListener('click', async ()=>{
+  let cleanEmployees = [];
+  try{ cleanEmployees = Object.values((await fdb.ref('employees').once('value')).val() || {}); }catch(e){ toast('Firebase: ' + e.message, 'err'); return; }
+  if(!cleanEmployees.length){ toast('No employee records to export', 'err'); return; }
   const jsonStr = JSON.stringify(cleanEmployees, null, 2);
   const blob = new Blob([jsonStr], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1409,6 +1506,7 @@ document.getElementById('empSaveBtn').addEventListener('click', ()=>{
   const pin = document.getElementById('fEmpPin').value.trim();
   const fpTag = document.getElementById('fEmpFpTag').value.trim();
   if(!id || !name){ toast('ID & Name required.', 'err'); return; }
+  if(pin && !/^\d{4}$/.test(pin)){ toast('PIN must be exactly 4 digits (numbers only)', 'err'); return; }
 
   const record = { id, name, dept, pin, fpTag, fpEnrolled: fpTag ? capturedFpEnrolled : false, fpCredentialId: fpTag ? fpCredentialId : null, descriptor: capturedDescriptor, photo: capturedPhoto };
   if(editingId){
@@ -1854,6 +1952,14 @@ document.querySelectorAll('.vtab').forEach(tab=>{
   });
 });
 
+['attPin','fEmpPin'].forEach(id=>{
+  const el = document.getElementById(id);
+  el.addEventListener('input', ()=>{
+    const raw = el.value, digits = raw.replace(/\D/g,'');
+    if(digits.length > 4 || digits !== raw) toast('PIN must be exactly 4 digits (numbers only)', 'err');
+    el.value = digits.slice(0,4);
+  });
+});
 document.getElementById('pinVerifyBtn').addEventListener('click', ()=>{
   const val = document.getElementById('attPin').value.trim();
   const emp = employees.find(e=> e.pin && e.pin === val);
@@ -2037,7 +2143,7 @@ function logAttendance(emp, method){
     }
   }
 
-  saveLogs();
+  saveLogs(logs[logs.length-1]);
 
   document.getElementById('succName').textContent = emp.name;
   document.getElementById('succMeta').textContent = `CHECKED ${action} (${tStr})`;
@@ -2063,7 +2169,7 @@ function logAttendance(emp, method){
 
 /* REPORTS & AUDIT LOGS */
 function renderReports(){
-  const searchQ = (document.getElementById('reportSearch').value || '').toLowerCase();
+  const searchQ = (document.getElementById('reportSearch').value || '').trim().replace(/\s+/g,' ').toLowerCase();
   let list = [...logs];
 
   const dateFilter = activeFilter;
@@ -2087,7 +2193,7 @@ function renderReports(){
     list = list.filter(l => l.name.toLowerCase().includes(searchQ) || l.empId.toLowerCase().includes(searchQ));
   }
 
-  list.reverse();
+  list.sort((a,b)=>(b.lastUpdated||0)-(a.lastUpdated||0));
 
   const tbody = document.getElementById('reportBody');
   const emptyEl = document.getElementById('reportEmpty');
@@ -2124,18 +2230,19 @@ document.querySelectorAll('.filters button').forEach(b=>{
     activeFilter = b.dataset.f;
     const cInput = document.getElementById('customDate');
     cInput.style.display = activeFilter === 'custom' ? 'inline-block' : 'none';
-    renderReports();
+    refreshReports();
   });
 });
 
-document.getElementById('customDate').addEventListener('change', renderReports);
+document.getElementById('customDate').addEventListener('change', refreshReports);
 document.getElementById('reportSearch').addEventListener('input', renderReports);
 
 /* CSV EXPORT */
-document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
+document.getElementById('exportCsvBtn').addEventListener('click', async ()=>{
+  try{ putLogs((await fdb.ref('attendance_logs').once('value')).val() || {}); }catch(e){ toast('Firebase: ' + e.message, 'err'); }
   if(!logs.length){ toast('No attendance logs to export.', 'err'); return; }
   let csv = 'Employee ID,Name,Date,IN Time,OUT Time,Status,Verification Method\n';
-  [...logs].reverse().forEach(l => {
+  [...logs].sort((a,b)=>(b.lastUpdated||0)-(a.lastUpdated||0)).forEach(l => {
     const status = l.exit ? 'OUT' : 'IN';
     const combinedMethod = l.method || (l.inMethod && l.outMethod ? `${l.inMethod} + ${l.outMethod}` : (l.inMethod || l.outMethod || 'Manual'));
     csv += `"${l.empId}","${l.name}","${l.date}","${l.entrance||''}","${l.exit||''}","${status}","${combinedMethod}"\n`;
@@ -2253,6 +2360,7 @@ renderDashboard();
         resolve(out);
       };
       im.onerror = () => reject(new Error('bad photo'));
+      if (!/^data:/.test(dataUrl)) im.crossOrigin = 'anonymous';
       im.src = dataUrl;
     });
   }
@@ -2283,6 +2391,7 @@ renderDashboard();
       if (el && backend.ok) paintBadge(el);
     }
   }
+  window.faceBackendDelete = id => backend.ok ? api('/api/enroll/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {}) : null;
   ping(); setInterval(ping, 20000);
 
   const cap = document.createElement('canvas'), cctx = cap.getContext('2d');
