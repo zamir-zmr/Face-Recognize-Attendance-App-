@@ -217,33 +217,55 @@ tr:last-child td { border-bottom: none; }
   100% { top: 95%; opacity: 0; }
 }
 
-/* Professional Face Guide Frame */
+/* Professional Face Guide Frame - cyan oval mesh (distinct from the amber finger overlay).
+   Camera OFF: the mesh spins around its vertical axis (standby). Camera ON: it locks upright and stays static. */
+:root { --oval: #00E5FF; --oval-rgb: 0, 229, 255; --finger: #F59E0B; }
+body.white-mode { --oval: #3B82F6; --oval-rgb: 59, 130, 246; }
 .cam-guide {
-  position: absolute; 
+  position: absolute;
   top: 25px;
   left: 50%;
   transform: translateX(-50%);
-  width: 190px; 
+  width: 190px;
   height: 240px;
-  border: 2px dashed rgba(56, 189, 248, 0.6); 
+  border: 2px solid rgba(var(--oval-rgb), 0.55);
   border-radius: 50%;
-  pointer-events: none; 
-  z-index: 3; 
-  transition: all 0.3s ease;
-  box-shadow: 0 0 0 2000px rgba(3, 7, 18, 0.4);
+  pointer-events: none;
+  z-index: 3;
+  perspective: 700px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  box-shadow: 0 0 0 2000px rgba(3, 7, 18, 0.4), 0 0 18px rgba(var(--oval-rgb), 0.25), inset 0 0 18px rgba(var(--oval-rgb), 0.12);
 }
-.cam-guide::after {
+.cam-guide::before {                      /* mesh */
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background:
+    repeating-linear-gradient(90deg, rgba(var(--oval-rgb), 0.28) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(0deg, rgba(var(--oval-rgb), 0.28) 0 1px, transparent 1px 24px);
+  -webkit-mask-image: radial-gradient(ellipse at center, transparent 0%, #000 55%, #000 100%);
+  mask-image: radial-gradient(ellipse at center, transparent 0%, #000 55%, #000 100%);
+  transform: none;
+}
+.cam-guide::after {                       /* outer halo ring with a bright top arc */
   content: ''; position: absolute; inset: -8px; border-radius: 50%;
-  border: 1.5px solid rgba(56, 189, 248, 0.25); border-top-color: var(--accent);
-  animation: rotateGuide 8s linear infinite;
+  border: 1.5px solid rgba(var(--oval-rgb), 0.22); border-top-color: var(--oval);
+  transform: none;
 }
-@keyframes rotateGuide { 100% { transform: rotate(360deg); } }
+/* camera OFF -> spin around the vertical axis */
+.cam-box:not(.active-scan) .cam-guide::before { animation: ovalSpin 6s linear infinite; }
+.cam-box:not(.active-scan) .cam-guide::after  { animation: ovalSpin 9s linear infinite reverse; }
+@keyframes ovalSpin { from { transform: rotateY(0deg); } to { transform: rotateY(360deg); } }
+/* camera ON -> fixed, upright, no rotation */
+.cam-box.active-scan .cam-guide::before,
+.cam-box.active-scan .cam-guide::after { animation: none; transform: none; }
 
 .cam-guide.active {
-  border-color: var(--ok); border-style: solid;
-  box-shadow: 0 0 0 2000px rgba(3, 7, 18, 0.3), 0 0 20px rgba(16, 185, 129, 0.2) inset;
+  border-color: var(--oval);
+  box-shadow: 0 0 0 2000px rgba(3, 7, 18, 0.3), 0 0 26px rgba(var(--oval-rgb), 0.45), inset 0 0 22px rgba(var(--oval-rgb), 0.22);
 }
-.cam-guide.active::after { border-color: var(--ok); }
+.cam-guide.active::after { border-color: rgba(var(--oval-rgb), 0.45); border-top-color: var(--oval); }
+@media (prefers-reduced-motion: reduce) {
+  .cam-box:not(.active-scan) .cam-guide::before, .cam-box:not(.active-scan) .cam-guide::after { animation: none; }
+}
 
 .cam-overlay { position: absolute; bottom: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: center; z-index: 10005; }
 .scan-status { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); padding: 6px 12px; border-radius: 8px; font-size: 0.75rem; border: 1px solid var(--line); font-weight: 600; }
@@ -430,34 +452,19 @@ input[type=text]:focus, select:focus { border-color: var(--accent); }
   mask-image: radial-gradient(ellipse 95px 120px at 50% 145px, transparent 98%, black 100%);
 }
 
-/* DYNAMIC POSE CHALLENGE BANNER — bold, colour-coded, animated directional arrows */
-#poseChallenge {
-  position: absolute; z-index: 100; display: none; flex-direction: column; align-items: center; gap: 2px;
-  pointer-events: none; padding: 10px 22px 8px; border-radius: 18px; max-width: 82%;
-  background: rgba(3, 7, 18, 0.84); border: 3px solid var(--pc, #38bdf8);
-  box-shadow: 0 0 28px var(--pc, #38bdf8), 0 8px 24px rgba(0,0,0,0.6);
-  backdrop-filter: blur(6px); color: #fff; text-align: center;
+/* VERIFIED-FACE TOASTS: forced white text on a dark card, readable in dark and white mode */
+.toast.name, .toast.verify {
+  display: flex; align-items: center; gap: 10px;
+  background: #0b1220 !important; color: #ffffff !important;
+  border: 1px solid rgba(255,255,255,0.14) !important; box-shadow: 0 10px 26px rgba(0,0,0,0.45) !important;
 }
-#poseChallenge.pose-UP    { top: 14px; left: 50%; transform: translateX(-50%); }
-#poseChallenge.pose-DOWN  { bottom: 64px; left: 50%; transform: translateX(-50%); }
-#poseChallenge.pose-LEFT  { left: 14px; top: 50%; transform: translateY(-50%); }
-#poseChallenge.pose-RIGHT { right: 14px; top: 50%; transform: translateY(-50%); }
-#poseChallenge .pose-arrow { display: block; width: 88px; height: 88px; transform: rotate(var(--rot, 0deg)); }
-#poseChallenge .pose-arrow svg {
-  width: 100%; height: 100%; display: block;
-  fill: var(--pc, #38bdf8); stroke: #ffffff; stroke-width: 4; stroke-linejoin: round;
-  filter: drop-shadow(0 3px 6px rgba(0,0,0,0.85));
-  animation: poseNudge 0.65s ease-in-out infinite alternate;
-}
-@keyframes poseNudge { from { transform: translateY(6px); } to { transform: translateY(-9px); } }
-#poseChallenge .pose-label { font-size: 1.6rem; font-weight: 900; letter-spacing: 4px; line-height: 1.1; color: var(--pc, #38bdf8); text-shadow: 0 2px 8px rgba(0,0,0,0.9); }
-#poseChallenge .pose-text  { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.3px; color: #fff; }
-#poseChallenge.fail { animation: fpShake 0.35s ease; }
-@media (max-width: 480px) {
-  #poseChallenge { padding: 8px 14px 6px; }
-  #poseChallenge .pose-arrow { width: 62px; height: 62px; }
-  #poseChallenge .pose-label { font-size: 1.15rem; }
-}
+.toast.name   { border-left: 4px solid var(--oval) !important; }
+.toast.verify { border-left: 4px solid var(--ok) !important; }
+.toast .t-ic { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--ok); }
+.toast .t-ic svg { width: 14px; height: 14px; fill: none; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.toast .t-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.toast .t-cap  { font-size: 0.62rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,0.65); }
+.toast .t-main { font-size: 0.92rem; font-weight: 800; color: #ffffff; overflow-wrap: anywhere; }
 
 /* WHITE BACKGROUND MODE (LIGHT MODE) FOR ALL CONTAINERS & TEXT */
 body.white-mode {
@@ -659,9 +666,6 @@ body.white-mode .toast.err { border-left-color: var(--danger) !important; }
           <!-- SCREEN FLASHLIGHT OVERLAY INSIDE CAM-BOX -->
           <div id="screenFlashlight"></div>
           
-          <!-- DYNAMIC POSE CHALLENGE BANNER -->
-          <div id="poseChallenge"><span class="pose-arrow" id="poseArrow"></span><span class="pose-label" id="poseLabel"></span><span class="pose-text" id="poseText"></span></div>
-
           <div class="cam-corners"></div>
           <div class="cam-corners-bottom"></div>
           <div class="scan-line"></div>
@@ -860,6 +864,8 @@ let lastToastTime = 0;
 function saveEmployees(){ localStorage.setItem(LS_EMP, JSON.stringify(employees)); }
 function saveLogs(){ localStorage.setItem(LS_LOG, JSON.stringify(logs)); }
 
+const CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
+
 function toast(msg, type='info'){
   const now = Date.now();
   if (msg === lastToastMessage && (now - lastToastTime) < 3000) {
@@ -870,10 +876,30 @@ function toast(msg, type='info'){
 
   const host = document.getElementById('toastHost');
   const t = document.createElement('div');
-  t.className = 'toast ' + (type==='ok'?'ok':type==='err'?'err':'');
-  t.textContent = msg;
+  if(type === 'name'){                       /* verified employee name: white text, clean contrast */
+    t.className = 'toast name';
+    const body = document.createElement('div'); body.className = 't-body';
+    const cap = document.createElement('span'); cap.className = 't-cap'; cap.textContent = 'Employee Identified';
+    const main = document.createElement('span'); main.className = 't-main'; main.textContent = msg;
+    body.append(cap, main); t.appendChild(body);
+  } else if(type === 'verify'){              /* explicit success status with green check */
+    t.className = 'toast verify';
+    const ic = document.createElement('span'); ic.className = 't-ic'; ic.innerHTML = CHECK_SVG;
+    const body = document.createElement('div'); body.className = 't-body';
+    const main = document.createElement('span'); main.className = 't-main'; main.textContent = msg;
+    body.appendChild(main); t.append(ic, body);
+  } else {
+    t.className = 'toast ' + (type==='ok'?'ok':type==='err'?'err':'');
+    t.textContent = msg;
+  }
   host.appendChild(t);
-  setTimeout(()=>t.remove(), 3200);
+  setTimeout(()=>t.remove(), 3600);
+}
+
+/* Step 1/2 finished: show who was recognised, then the explicit success status */
+function announceFaceVerified(name){
+  toast(name, 'name');
+  toast('Face Verification Complete', 'verify');
 }
 
 function todayStr(){ return new Date().toISOString().slice(0,10); }
@@ -1333,7 +1359,7 @@ document.getElementById('empSaveBtn').addEventListener('click', ()=>{
   toast('Employee Saved', 'ok');
 });
 
-/* LIVE SCANNER & DYNAMIC POSE-CHALLENGE LIVENESS */
+/* LIVE SCANNER & LIVENESS */
 let scanStream = null, isProcessingFrame = false, animationFrameId = null;
 let scanMode = localStorage.getItem(LS_MODE) || 'IN';
 let isVerifyingLiveness = false;
@@ -1393,7 +1419,6 @@ function getOpts(size, thr) {
 }
 function isDimNow() { return lastAvgBrightness < LOWLIGHT_ENHANCE_BELOW; }
 function getScanOpts() { return isDimNow() ? getOpts(224, 0.3) : getOpts(128, 0.4); }
-function getPoseOpts() { return isDimNow() ? getOpts(224, 0.3) : getOpts(160, 0.4); }
 
 /* Cached FaceMatcher (rebuilt only when enrolled descriptors change) */
 let cachedMatcher = null, cachedMatcherSig = '';
@@ -1501,7 +1526,6 @@ function stopScannerCamera(){
   }
   isProcessingFrame = false;
   isVerifyingLiveness = false;
-  hidePoseBanner();
 }
 
 /* SCAN STATUS DISPLAYED STRICTLY AT BOTTOM-LEFT */
@@ -1519,8 +1543,8 @@ let livenessCtx = livenessCanvas.getContext('2d', { willReadFrequently: true });
 
 /* MICRO-MOTION LIVENESS CHECK: real faces show tiny natural motion/texture change
    between frames; a flat printed photo or a static/looping video screen tends to
-   show near-zero pixel variance across a short interval. This runs BEFORE the
-   pose challenge and adds an extra signal that must also pass. */
+   show near-zero pixel variance across a short interval. It runs right after the
+   face is matched and must also pass before verification completes. */
 function getFaceFrameSnapshot(video, box) {
   let sx = Math.max(0, Math.floor(box.x));
   let sy = Math.max(0, Math.floor(box.y));
@@ -1552,127 +1576,12 @@ async function verifyMicroMotionLiveness(video, box) {
     return avgDiff >= 0.35;
   } catch (e) {
     /* If the motion probe itself fails (e.g. canvas restrictions), don't block
-       on this secondary signal alone — fall through to the pose challenge. */
+       on this secondary signal alone. */
     return true;
   }
 }
 
-/* ===== DYNAMIC POSE CHALLENGE (UP / DOWN / LEFT / RIGHT) =====
-   Every live detection picks a fresh random head-turn. Attendance is logged
-   only if the user performs exactly that pose within the time limit.
-   LEFT / RIGHT are from the USER's point of view (camera preview is mirrored). */
-const POSE_LIST = ['LEFT','RIGHT'];
-const POSE_INFO = {
-  UP:    { label:'UP',    hint:'Tilt your head UP',               color:'#22c55e', rot:'0deg'   },
-  DOWN:  { label:'DOWN',  hint:'Tilt your head DOWN',            color:'#f59e0b', rot:'180deg' },
-  LEFT:  { label:'LEFT',  hint:'Turn your head to your LEFT',   color:'#38bdf8', rot:'-90deg' },
-  RIGHT: { label:'RIGHT', hint:'Turn your head to your RIGHT',  color:'#a78bfa', rot:'90deg'  }
-};
-/* One bold block arrow (points up); rotated by CSS for each direction */
-const POSE_ARROW_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 3 L60 31 H43 V61 H21 V31 H4 Z"/></svg>';
-const POSE_YAW_DELTA   = 0.13;  /* min change in left/right ratio vs neutral */
-const POSE_PITCH_DELTA = 0.09;  /* min change in up/down ratio vs neutral   */
-const POSE_HOLD_FRAMES = 3;     /* pose must be seen in this many consecutive frames */
-const POSE_TIMEOUT_MS  = 7000;
-const POSE_SMOOTHING   = 0.6;   /* EMA weight of newest frame (reduces low-light jitter) */
-let lastPose = null;
-
-function pickRandomPose(){
-  const pool = POSE_LIST;   /* pure random: with 2 poses, anti-repeat would be predictable */
-  const r = new Uint32Array(1);
-  (window.crypto || window.msCrypto).getRandomValues(r);
-  lastPose = pool[r[0] % pool.length];
-  return lastPose;
-}
-
-function showPoseBanner(pose, failed){
-  const el = document.getElementById('poseChallenge');
-  if(!el) return;
-  const info = POSE_INFO[pose];
-  el.className = 'pose-' + pose + (failed ? ' fail' : '');
-  el.style.setProperty('--pc', failed ? '#f43f5e' : info.color);
-  el.style.setProperty('--rot', info.rot);
-  document.getElementById('poseArrow').innerHTML = POSE_ARROW_SVG;
-  document.getElementById('poseLabel').textContent = info.label;
-  document.getElementById('poseText').textContent = info.hint;
-  el.style.display = 'flex';
-}
-function hidePoseBanner(){
-  const el = document.getElementById('poseChallenge');
-  if(el){ el.style.display = 'none'; el.className = ''; }
-}
-
-/* yaw: nose position between the two jaw edges. pitch: nose position between eye-line and chin. */
-function getPoseMetrics(landmarks){
-  const pts = landmarks.positions;
-  const jawA = pts[0], jawB = pts[16], nose = pts[30], chin = pts[8];
-  const eyeY = (pts[36].y + pts[45].y) / 2;
-  const yaw   = (nose.x - jawA.x) / Math.max(1, (jawB.x - jawA.x));
-  const pitch = (nose.y - eyeY)   / Math.max(1, (chin.y - eyeY));
-  return { yaw, pitch };
-}
-
-/* Which pose (if any) does this frame show, relative to the neutral baseline? */
-function classifyPose(m, base){
-  const dYaw = m.yaw - base.yaw, dPitch = m.pitch - base.pitch;
-  const yawHit = Math.abs(dYaw) >= POSE_YAW_DELTA;   /* yaw only: UP/DOWN removed */
-  if(yawHit){
-    return dYaw > 0 ? 'LEFT' : 'RIGHT';
-  }
-  return null;
-}
-
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-async function runPoseChallenge(video, overlay, box){
-  const ctx = overlay.getContext('2d');
-  const target = pickRandomPose();
-
-  /* Phase 1: capture neutral (straight-face) baseline */
-  updateFlashlightState(video);
-  setScanStatus('Look straight at the camera...', 'detecting');
-  hidePoseBanner();
-  const baseSamples = [];
-  const baseEnd = Date.now() + 900;
-  while(Date.now() < baseEnd && scanStream){
-    const d = await faceapi.detectSingleFace(getDetectionInput(video), getPoseOpts()).withFaceLandmarks();
-    if(d) baseSamples.push(getPoseMetrics(d.landmarks));
-  }
-  if(!scanStream) return { ok:false, reason:'stopped' };
-  if(baseSamples.length < 2) return { ok:false, reason:'noface' };
-  const base = {
-    yaw:   baseSamples.reduce((a,b)=>a+b.yaw,0)/baseSamples.length,
-    pitch: baseSamples.reduce((a,b)=>a+b.pitch,0)/baseSamples.length
-  };
-
-  /* Phase 2: show the random challenge and wait for the correct pose */
-  showPoseBanner(target, false);
-  setScanStatus('Pose Challenge: ' + target, 'detecting');
-  const end = Date.now() + POSE_TIMEOUT_MS;
-  let hold = 0, smooth = null;
-  while(Date.now() < end && scanStream){
-    updateFlashlightState(video);                       /* keeps screen-light / brightness fresh (throttled) */
-    const d = await faceapi.detectSingleFace(getDetectionInput(video), getPoseOpts()).withFaceLandmarks();
-    ctx.clearRect(0,0,overlay.width,overlay.height);
-    if(!d){ hold = 0; continue; }
-    const b = d.detection.box;
-    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2; ctx.strokeRect(b.x, b.y, b.width, b.height);
-
-    const m = getPoseMetrics(d.landmarks);
-    smooth = smooth ? { yaw: POSE_SMOOTHING*m.yaw + (1-POSE_SMOOTHING)*smooth.yaw,
-                        pitch: POSE_SMOOTHING*m.pitch + (1-POSE_SMOOTHING)*smooth.pitch } : m;
-    const seen = classifyPose(smooth, base);
-    if(seen === target){
-      if(++hold >= POSE_HOLD_FRAMES) return { ok:true, target, box:b };
-    } else if(seen){
-      return { ok:false, reason:'wrong', target, seen, box:b };   /* wrong direction */
-    } else {
-      hold = 0;
-    }
-  }
-  if(!scanStream) return { ok:false, reason:'stopped' };
-  return { ok:false, reason:'timeout', target };
-}
 
 async function runFaceScan(){
   isProcessingFrame = true;
@@ -1722,13 +1631,9 @@ async function runFaceScan(){
 
   const emp = employees.find(e=>e.id===best.label);
 
+  /* Step 1/2 (straight-face recognition only - no head-pose challenge). */
   isVerifyingLiveness = true;
   let isMotionReal = await verifyMicroMotionLiveness(video, box);
-  let poseResult = null;
-  if(isMotionReal){
-    try{ poseResult = await runPoseChallenge(video, overlay, box); }
-    catch(e){ poseResult = { ok:false, reason:'error' }; }
-  }
   isVerifyingLiveness = false;
 
   if (!isMotionReal) {
@@ -1739,30 +1644,11 @@ async function runFaceScan(){
     return;
   }
 
-  if (!poseResult || !poseResult.ok) {
-    const why = poseResult ? poseResult.reason : 'error';
-    if(why === 'stopped'){ hidePoseBanner(); isProcessingFrame = false; return; }
-    ctx.clearRect(0,0,overlay.width,overlay.height);
-    ctx.strokeStyle = '#f43f5e'; ctx.lineWidth = 3; ctx.strokeRect(box.x, box.y, box.width, box.height);
-    let msg = 'Pose challenge failed — please try again';
-    if(why === 'wrong')   msg = 'Wrong pose! Required: ' + poseResult.target + ' — attendance not recorded';
-    if(why === 'timeout') msg = 'Timed out — ' + poseResult.target + ' pose not detected';
-    if(why === 'noface')  msg = lastAvgBrightness < LOWLIGHT_ENHANCE_BELOW ? 'Lighting is too low — tap the bulb button or improve the lighting' : 'Face not clearly visible — please try again';
-    setScanStatus(msg, 'fail');
-    toast(msg, 'err');
-    if(poseResult && poseResult.target){ showPoseBanner(poseResult.target, true); }
-    await sleep(1500);
-    hidePoseBanner();
-    isProcessingFrame = false;
-    return;
-  }
-  hidePoseBanner();
-
   ctx.strokeStyle = '#10b981'; ctx.lineWidth = 3; ctx.strokeRect(box.x, box.y, box.width, box.height);
   setScanStatus('Verified: ' + emp.name, 'success');
+  announceFaceVerified(emp.name);
 
-  /* Attendance is ONLY recorded once the face is recognised, micro-motion passes
-     AND the user has performed the randomly requested pose (UP/DOWN/LEFT/RIGHT). */
+  /* Attendance is ONLY recorded once the face is recognised and the micro-motion liveness check passes. */
   logAttendance(emp, 'Face Recognition');
   isProcessingFrame = false;
 }
@@ -2218,11 +2104,11 @@ renderDashboard();
     return cap.toDataURL('image/jpeg', q);
   }
 
-  /* ---------- LIVE SCAN (server: low-light enhance -> detect -> identify -> random pose challenge) ---------- */
+  /* ---------- LIVE SCAN (server: low-light enhance -> detect -> identify (Step 1/2) -> random finger challenge (Step 2/2)) ---------- */
   const _origRunFaceScan = window.runFaceScan;
 
-  /* ---------- Two-step HUD (Step 1/2 fingers, Step 2/2 face) ---------- */
-  const HUD_BLUE = '#38bdf8', HUD_GREEN = '#22c55e', HUD_RED = '#f43f5e';
+  /* ---------- Two-step HUD (Step 1/2 face, Step 2/2 fingers) ---------- */
+  const HUD_BLUE = '#00E5FF', HUD_GREEN = '#10B981', HUD_RED = '#f43f5e', FINGER_COLOR = '#F59E0B';
   const camBox = () => document.getElementById('camBox');
   let hudEl = null, hudBadge = null, hudLabel = null, hudPrompt = null, hudDots = [];
   function ensureHud() {
@@ -2248,7 +2134,7 @@ renderDashboard();
     const two = (res.steps || 1) === 2, step = res.step || 1;
     const done = res.state === 'passed', bad = res.state === 'failed' || res.state === 'unknown';
     hudLabel.textContent = done ? (two ? 'Step 2/2 ✓ Verified' : '✓ Verified')
-      : two ? 'Step ' + step + '/2: ' + (step === 1 ? 'Finger Challenge' : 'Face Verification') : 'Face Verification';
+      : two ? 'Step ' + step + '/2: ' + (step === 1 ? 'Face Verification' : 'Finger Challenge') : 'Face Verification';
     hudBadge.style.borderColor = bad ? HUD_RED : done ? HUD_GREEN : HUD_BLUE;
     hudDots[0].style.background = (step >= 2 || done) ? HUD_GREEN : (bad ? HUD_RED : HUD_BLUE);
     hudDots[1].style.display = two ? '' : 'none';
@@ -2256,17 +2142,17 @@ renderDashboard();
     let prompt = '', big = false;
     if (res.stage === 'finger' && res.target_fingers && !done) {
       const n = res.target_fingers; big = true;
-      prompt = '✋ Show ' + n + (n === 1 ? ' finger' : ' fingers') + (typeof res.count === 'number' ? '  ·  detected ' + res.count : '');
+      prompt = 'Show ' + n + (n === 1 ? ' finger' : ' fingers') + (typeof res.count === 'number' ? '  ·  detected ' + res.count : '');
     } else if (bad) prompt = res.message;
-    else if (!done && res.stage !== 'challenge') prompt = res.message;
+    else if (!done) prompt = res.message;
     hudPrompt.textContent = prompt;
     hudPrompt.style.display = prompt ? 'block' : 'none';
     hudPrompt.style.fontSize = big ? '20px' : '14px';
-    hudPrompt.style.borderColor = bad ? HUD_RED : (res.stage === 'finger' ? HUD_GREEN : 'rgba(56,189,248,.6)');
+    hudPrompt.style.borderColor = bad ? HUD_RED : (res.stage === 'finger' ? FINGER_COLOR : 'rgba(0,229,255,.6)');
     box.style.display = 'flex';
   }
 
-  /* ---------- Finger tracking overlay: green tip ball + thin green stem line, smoothly interpolated ---------- */
+  /* ---------- Finger tracking overlay: amber ring + thin amber stem, smoothly interpolated (distinct from the cyan face oval) ---------- */
   let fCanvas = null, fRAF = 0; const fState = new Map();
   const lerp2 = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
   function fingerCanvas(video) {
@@ -2297,16 +2183,30 @@ renderDashboard();
     ctx.clearRect(0, 0, c.width, c.height);
     if (!fState.size) return;
     const now = performance.now(), W = c.width, H = c.height;
-    const r = Math.max(6, W * 0.013), lw = Math.max(2, W * 0.004);
-    ctx.lineCap = 'round'; ctx.shadowColor = 'rgba(34,197,94,.85)'; ctx.shadowBlur = 10;
+    const r = Math.max(5, W * 0.011), lw = Math.max(1.6, W * 0.0028);
+    const CASING = 'rgba(2,6,23,.55)';                     /* dark casing keeps the line legible on any background */
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (const s of fState.values()) {
       const k = Math.min(1, (now - s.t0) / s.dur);
       s.cT = lerp2(s.fT, s.tT, k); s.cB = lerp2(s.fB, s.tB, k);
-      ctx.strokeStyle = HUD_GREEN; ctx.lineWidth = lw;
-      ctx.beginPath(); ctx.moveTo(s.cB[0] * W, s.cB[1] * H); ctx.lineTo(s.cT[0] * W, s.cT[1] * H); ctx.stroke();   /* stem */
-      ctx.fillStyle = HUD_GREEN;
-      ctx.beginPath(); ctx.arc(s.cT[0] * W, s.cT[1] * H, r, 0, Math.PI * 2); ctx.fill();                          /* tip ball */
+      const bx = s.cB[0] * W, by = s.cB[1] * H, tx = s.cT[0] * W, ty = s.cT[1] * H;
+      /* stem: casing + thin accent line */
+      ctx.shadowBlur = 0; ctx.strokeStyle = CASING; ctx.lineWidth = lw + 2.2;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke();
+      ctx.shadowColor = 'rgba(245,158,11,.5)'; ctx.shadowBlur = 5; ctx.strokeStyle = FINGER_COLOR; ctx.lineWidth = lw;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke();
+      /* base joint: small solid dot */
+      ctx.shadowBlur = 0; ctx.fillStyle = FINGER_COLOR;
+      ctx.beginPath(); ctx.arc(bx, by, r * 0.38, 0, Math.PI * 2); ctx.fill();
+      /* tip: hollow ring with a small centre dot */
+      ctx.strokeStyle = CASING; ctx.lineWidth = lw + 2.2;
+      ctx.beginPath(); ctx.arc(tx, ty, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.shadowColor = 'rgba(245,158,11,.5)'; ctx.shadowBlur = 5; ctx.strokeStyle = FINGER_COLOR; ctx.lineWidth = lw;
+      ctx.beginPath(); ctx.arc(tx, ty, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.shadowBlur = 0; ctx.fillStyle = FINGER_COLOR;
+      ctx.beginPath(); ctx.arc(tx, ty, r * 0.32, 0, Math.PI * 2); ctx.fill();
     }
+    ctx.shadowBlur = 0;
     fRAF = requestAnimationFrame(paintFingers);
   }
   function clearFingers() {
@@ -2334,7 +2234,7 @@ renderDashboard();
       ctx.strokeRect(box[0] * overlay.width, box[1] * overlay.height, box[2] * overlay.width, box[3] * overlay.height);
     };
 
-    let sid, res = null, bannerFor = null, fast = false;
+    let sid, res = null, fast = false, announced = false;
     try { sid = (await api('/api/verify/start', { method: 'POST', body: '{}' })).session_id; }
     catch (e) { backend.ok = false; isProcessingFrame = false; return; }
 
@@ -2346,18 +2246,20 @@ renderDashboard();
         guide.classList.toggle('active', !!res.box);
         draw(res.box, '#38bdf8');
         hud(res); fast = res.stage === 'finger';      /* smaller frames while tracking fingers */
+        if (res.face_verified && !announced) {        /* Step 1/2 complete -> employee name + "Face Verification Complete" */
+          announced = true;
+          const who = employees.find(e => e.id === res.employee_id);
+          announceFaceVerified(who ? who.name : String(res.employee_id));
+        }
 
         if (res.state === 'running') {
           const two = (res.steps || 1) === 2;
-          if (res.stage === 'finger') {                                /* Step 1/2 */
-            if (bannerFor) { hidePoseBanner(); bannerFor = null; }
+          if (res.stage === 'finger') {                                /* Step 2/2 */
             setFingers(res.fingers || [], video);
-            setScanStatus(res.message || 'Step 1/2: Finger Challenge', 'detecting');
-          } else if (res.stage === 'challenge' && res.pose) {          /* Step 2/2 */
-            if (bannerFor !== res.pose) { showPoseBanner(res.pose, false); bannerFor = res.pose; }
-            setScanStatus((two ? 'Step 2/2 · ' : '') + 'Pose Challenge: ' + res.pose, 'detecting');
-          } else {
-            setScanStatus((two && res.stage !== 'search' ? 'Step 2/2 · ' : '') + res.message, 'detecting');
+            const n = res.target_fingers;
+            setScanStatus('Step 2/2 · Show ' + n + (n === 1 ? ' finger' : ' fingers'), 'detecting');
+          } else {                                                     /* Step 1/2 */
+            setScanStatus((two ? 'Step 1/2 · ' : '') + res.message, 'detecting');
           }
           await sleep(CFG.gapMs);
           continue;
@@ -2371,7 +2273,7 @@ renderDashboard();
 
     isVerifyingLiveness = false;
     clearFingers();
-    if (!scanStream || !res) { hidePoseBanner(); hideHud(); isProcessingFrame = false; return; }
+    if (!scanStream || !res) { hideHud(); isProcessingFrame = false; return; }
 
     if (res.state === 'idle') {
       guide.classList.remove('active'); draw(null);
@@ -2381,15 +2283,14 @@ renderDashboard();
       if (res.message === 'No face records enrolled') { setScanStatus('Syncing face records to server…', 'detecting'); scanGapMs = 2000; syncMissing(); }
       else { setScanStatus(res.message, 'fail'); scanGapMs = 450; }
     } else if (res.state === 'passed') {
-      hidePoseBanner(); draw(res.box, '#10b981', 3);
+      draw(res.box, '#10b981', 3);
       const emp = employees.find(e => e.id === res.employee_id);
       if (emp) { setScanStatus('Verified: ' + emp.name, 'success'); logAttendance(emp, 'Face Recognition'); }
       else { setScanStatus('Employee record missing on this device', 'fail'); toast('Employee ' + res.employee_id + ' not found locally', 'err'); }
     } else {
       draw(res.box, '#f43f5e', 3);
       setScanStatus(res.message, 'fail'); toast(res.message, 'err');
-      if (res.pose) showPoseBanner(res.pose, true);
-      await sleep(1500); hidePoseBanner();
+      await sleep(1500);
     }
     if (res.state !== 'idle') setTimeout(hideHud, 1600);
     isProcessingFrame = false;
