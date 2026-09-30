@@ -960,14 +960,17 @@ async function saveEmployees(){
     }
     for(const [k, e] of next){
       if(/^data:/.test(e.photo || '')){
-        const r = fst.ref('face_images/' + k + '/profile.jpg');
-        await r.putString(e.photo, 'data_url');
-        e.photo = await r.getDownloadURL();
+        try{
+          const r = fst.ref('face_images/' + k + '/profile.jpg');
+          await r.putString(e.photo, 'data_url');
+          e.photo = await r.getDownloadURL();
+        }catch(pe){ toast('Photo upload failed (Storage rules?) - saved inside record', 'err'); }   /* never lose the employee */
       }
       const rec = clean(e);
       if(!remoteEmp[k] || sj(rec) !== sj(remoteEmp[k])) await fdb.ref('employees/' + k).set(rec);
     }
-  }catch(err){ toast('Firebase sync failed: ' + err.message, 'err'); }
+    return true;
+  }catch(err){ toast('Firebase sync failed: ' + err.message, 'err'); return false; }
 }
 function saveLogs(entry){
   if(!entry) return;
@@ -986,16 +989,24 @@ fdb.ref('employees').on('value', snap => {
   employees = Object.values(remoteEmp).map(e => ({ ...e }));
   if(!empReady){ empReady = true; migrateLocal(); }
   rerender();
-}, err => toast('Firebase: ' + err.message, 'err'));
-function migrateLocal(){           /* one-time upload of data previously kept in this browser */
-  if(localStorage.getItem('fb_migrated')) return;
+}, err => {                        /* read denied / offline: show the browser's saved copy instead of an empty list */
+  try{ employees = JSON.parse(localStorage.getItem(LS_EMP) || '[]'); }catch(e){}
+  toast('Firebase read failed: ' + err.message + ' - check Database rules', 'err');
+  rerender();
+});
+async function migrateLocal(){           /* one-time upload of data previously kept in this browser */
+  if(localStorage.getItem('fb_migrated2')) return;
   try{
     const le = JSON.parse(localStorage.getItem(LS_EMP) || '[]');
     const ll = JSON.parse(localStorage.getItem(LS_LOG) || '[]');
-    if(le.length && !Object.keys(remoteEmp).length){ employees = le; saveEmployees(); }
-    ll.forEach(l => { if(l.date){ l.id = l.id || ('m' + (l.lastUpdated || 0).toString(36) + fbKey(l.empId)); saveLogs(l); } });
-    localStorage.setItem('fb_migrated', '1');
-  }catch(e){}
+    let ok = true;
+    if(le.length && !Object.keys(remoteEmp).length){ employees = le; ok = await saveEmployees(); }
+    if(ok){
+      await Promise.all(ll.filter(l => l.date).map(l => { l.id = l.id || ('m' + (l.lastUpdated || 0).toString(36) + fbKey(l.empId));
+        return fdb.ref('attendance_logs/' + l.date + '/' + l.id).set(clean(l)); }));
+      localStorage.setItem('fb_migrated2', '1');
+    }
+  }catch(e){ toast('Migration failed: ' + e.message, 'err'); }
 }
 let todayRef = null, watchedDay = '';
 function watchToday(){
