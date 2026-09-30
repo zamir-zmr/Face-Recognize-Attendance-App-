@@ -1292,6 +1292,7 @@ function renderEmployees(){
     const de = employees.find(e=>e.id === b.dataset.del);
     if(await askConfirm('Delete employee?', (de ? de.name : 'This employee') + ' will be removed from all devices (profile, photo and face data).', 'Delete')){
       const did = b.dataset.del, dk = fbKey(did), drec = remoteEmp[dk] || de || {};
+      toast('Deleting...', 'ok');
       const eref = fdb.ref('employees/' + dk);
       try{ await eref.remove(); }catch(err){ console.warn('remove failed', err.message); }
       try{
@@ -2432,7 +2433,7 @@ renderDashboard();
         if (key !== noticeKey) { noticeKey = key; showFingerNotice(h); }
       } else { noticeKey = ""; closeFingerNotice(); }
       /* server lost its embeddings (restart / ephemeral disk) or never had them -> rebuild from stored photos */
-      if (backend.ok && h.enrolled < employees.filter(e => e.photo && !syncFailed.has(e.id)).length) syncMissing();
+      if (backend.ok && (h.enrolled !== employees.filter(e => e.photo && !syncFailed.has(e.id)).length)) syncMissing();
     } catch (e) { backend.ok = false; }
   }
 
@@ -2463,6 +2464,10 @@ renderDashboard();
     const el = statusEl();
     try {
       const have = new Set((await api('/api/enrolled')).ids);
+      if (empReady && employees.length) {                       /* server faces with no employee record -> delete */
+        const live = new Set(employees.map(e => e.id));
+        for (const id of [...have]) if (!live.has(id)) { have.delete(id); await api('/api/enroll/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {}); }
+      }
       const todo = employees.filter(e => e.photo && !have.has(e.id) && !syncFailed.has(e.id));
       let ok = 0; const why = [];
       for (let i = 0; i < todo.length; i++) {
@@ -2642,6 +2647,14 @@ renderDashboard();
         guide.classList.toggle('active', !!res.box);
         draw(res.box, '#38bdf8');
         hud(res); fast = res.stage === 'finger';      /* smaller frames while tracking fingers */
+        if ((res.face_verified || res.state === 'passed') && res.employee_id && empReady && employees.length
+            && !employees.some(e => e.id === res.employee_id)) {        /* face belongs to an employee deleted earlier -> purge it */
+          if (window.faceBackendDelete) window.faceBackendDelete(res.employee_id);
+          toast('Old face record "' + res.employee_id + '" removed - scan again', 'err');
+          setScanStatus('Old face record removed - scan again', 'fail');
+          isVerifyingLiveness = false; clearFingers(); hideHud(); draw(null);
+          scanGapMs = 800; isProcessingFrame = false; return;
+        }
         if (res.face_verified && !announced) {        /* Step 1/2 complete -> employee name + "Face Verification Complete" */
           announced = true;
           const who = employees.find(e => e.id === res.employee_id);
