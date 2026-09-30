@@ -1,4 +1,5 @@
 """Downloads compressed (int8-quantized) OpenCV Zoo models: YuNet (detector, ~0.1 MB) + SFace (recognizer, ~9.7 MB)."""
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -35,7 +36,26 @@ def fetch(name: str, url: str, out: Path) -> bool:
     return True
 
 
+MEDIAPIPE = "mediapipe==0.10.35"
+MP_DEPS = ["absl-py~=2.3", "flatbuffers~=25.9", "matplotlib", "certifi"]
+
+
+def ensure_mediapipe() -> None:
+    """Build-time self-heal: mediapipe must be installed with --no-deps (its pinned opencv-contrib-python needs libGL)."""
+    def importable() -> bool:
+        return subprocess.call([sys.executable, "-c", "import mediapipe"], stderr=subprocess.DEVNULL) == 0
+
+    if importable():
+        print("ok   mediapipe already installed")
+        return
+    print("mediapipe missing -> installing %s (--no-deps)" % MEDIAPIPE)
+    subprocess.call([sys.executable, "-m", "pip", "install", "-q", *MP_DEPS])
+    subprocess.call([sys.executable, "-m", "pip", "install", "-q", "--no-deps", MEDIAPIPE])
+    print("ok   mediapipe installed" if importable() else "WARNING: mediapipe still not importable -> finger challenge disabled")
+
+
 def main() -> int:
+    ensure_mediapipe()
     out = Path(__file__).parent / "models"
     out.mkdir(exist_ok=True)
     ok = True
