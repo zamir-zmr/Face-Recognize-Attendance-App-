@@ -988,6 +988,7 @@ function rerender(){
   if(currentPage === 'reports') renderReports();
 }
 async function saveEmployees(){
+  if(!empReady){ toast('Employees still loading - wait a moment and retry', 'err'); return false; }
   try{
     const next = new Map(employees.map(e => [fbKey(e.id), e]));
     for(const k of Object.keys(remoteEmp)){
@@ -1038,6 +1039,10 @@ fdb.ref('employees').on('value', snap => {
   toast('Firebase read failed: ' + err.message + ' - check Database rules', 'err');
   rerender();
 });
+/* slow / blocked connection watchdog: employee records carry photos, so the first load can take a while on mobile data */
+setTimeout(() => { if(!empReady){ toast('Employees still loading - slow network, retrying...', 'err'); try{ fdb.goOffline(); fdb.goOnline(); }catch(e){} } }, 12000);
+setTimeout(() => { if(!empReady) toast('Cannot load employees - check internet / Firebase rules', 'err'); }, 35000);
+fdb.ref('.info/connected').on('value', sn => { if(sn.val() === true && !empReady) rerender(); });
 async function migrateLocal(){           /* one-time upload of data previously kept in this browser */
   if(localStorage.getItem('fb_migrated2')) return;
   try{
@@ -1254,11 +1259,11 @@ document.getElementById('retryModelsBtn').addEventListener('click', ()=>{ faceAp
 
 /* DASHBOARD */
 function renderDashboard(){
-  document.getElementById('statTotalEmp').textContent = employees.length;
+  document.getElementById('statTotalEmp').textContent = empReady ? employees.length : '...';
   const todays = logs.filter(l=>l.date===todayStr());
   document.getElementById('statInToday').textContent = todays.filter(l=>l.entrance).length;
   document.getElementById('statOutToday').textContent = todays.filter(l=>l.exit).length;
-  document.getElementById('statFaceReg').textContent = employees.filter(e=>e.descriptor).length;
+  document.getElementById('statFaceReg').textContent = empReady ? employees.filter(e=>e.descriptor).length : '...';
 
   const recent = logs.filter(l=>l.date===todayStr()).sort((a,b)=>(b.lastUpdated||0)-(a.lastUpdated||0)).slice(0,8);
   const body = document.getElementById('dashRecentBody');
@@ -1274,6 +1279,7 @@ function renderDashboard(){
 function renderEmployees(){
   const q = (document.getElementById('empSearch').value || '').trim().replace(/\s+/g,' ').toLowerCase();
   const grid = document.getElementById('empGrid');
+  if(!empReady){ grid.innerHTML = '<div class="empty">Loading employees from cloud...</div>'; return; }
   const filtered = employees.filter(e => e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q));
   grid.innerHTML = filtered.length ? filtered.map(e=>`
     <div class="emp-card">
@@ -1580,6 +1586,7 @@ document.getElementById('empSaveBtn').addEventListener('click', ()=>{
   if(!id || !name){ toast('ID & Name required.', 'err'); return; }
   if(pin && !/^\d{4}$/.test(pin)){ toast('PIN must be exactly 4 digits (numbers only)', 'err'); return; }
 
+  if(!empReady){ toast('Employees still loading - wait a moment and retry', 'err'); return; }
   const record = { id, name, dept, pin, fpTag, fpEnrolled: fpTag ? capturedFpEnrolled : false, fpCredentialId: fpTag ? fpCredentialId : null, descriptor: capturedDescriptor, photo: capturedPhoto };
   if(editingId){
     const idx = employees.findIndex(e=>e.id===editingId);
