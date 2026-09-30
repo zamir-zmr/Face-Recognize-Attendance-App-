@@ -40,6 +40,14 @@ MEDIAPIPE = "mediapipe==" + MEDIAPIPE_VERSION
 MP_DEPS = ["absl-py", "attrs>=19.1.0", "flatbuffers>=2.0", "protobuf>=4.25.3,<5", "matplotlib", "numpy<2"]
 
 
+def _pip(*args) -> bool:
+    r = subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", *args],
+                       capture_output=True, text=True)
+    if r.returncode != 0:                                   # show the real reason in the Render build log
+        print("pip install %s FAILED:\n%s" % (" ".join(args), (r.stdout + r.stderr).strip()[-1500:]))
+    return r.returncode == 0
+
+
 def ensure_mediapipe() -> None:
     """Build-time self-heal: install the pinned mediapipe with --no-deps (its opencv-contrib-python pin needs libGL)."""
     probe = "import importlib.metadata as m, mediapipe; print(m.version('mediapipe'))"
@@ -48,13 +56,17 @@ def ensure_mediapipe() -> None:
         r = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True)
         return r.stdout.strip() if r.returncode == 0 else ""
 
+    print("python %s | mediapipe: %s" % (sys.version.split()[0], installed() or "not installed"))
     if installed() == MEDIAPIPE_VERSION:
         print("ok   %s already installed" % MEDIAPIPE)
         return
-    print("mediapipe %s -> installing %s (--no-deps)" % (installed() or "missing", MEDIAPIPE))
-    subprocess.call([sys.executable, "-m", "pip", "install", "-q", *MP_DEPS])
-    subprocess.call([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "--force-reinstall", MEDIAPIPE])
-    print("ok   %s installed" % MEDIAPIPE if installed() == MEDIAPIPE_VERSION else "WARNING: mediapipe not importable -> finger challenge disabled")
+    _pip(*MP_DEPS)
+    _pip("--no-deps", MEDIAPIPE)
+    if installed() == MEDIAPIPE_VERSION:
+        print("ok   %s installed" % MEDIAPIPE)
+    else:
+        print("WARNING: %s not installed -> finger challenge disabled. mediapipe 0.10.21 needs Python 3.9-3.12: "
+              "add a .python-version file (3.12.3) to the repo root." % MEDIAPIPE)
 
 
 def main() -> int:

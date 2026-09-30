@@ -2,6 +2,7 @@
 Env (optional): FACE_API_KEY, CORS_ORIGINS="https://your-app.vercel.app,http://localhost:5500", MATCH_THRESHOLD, POSE_TIMEOUT_S"""
 import base64
 import os
+import platform
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -99,7 +100,8 @@ def health():
     return {"ok": engine.ready, "detector": engine.det_name, "recognizer": engine.rec_name,
             "enrolled": len(store), "sessions": sessions.BACKEND, "store": store.backend,
             "hands": getattr(engine, "hands_ready", False), "hands_api": getattr(engine, "_hands_api", "old-engine"),
-            "hands_error": getattr(engine, "hands_error", "")}
+            "hands_error": getattr(engine, "hands_error", ""),
+            "python": platform.python_version()}
 
 
 @app.get("/api/enrolled", dependencies=[Depends(auth)])

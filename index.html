@@ -2123,7 +2123,7 @@ renderDashboard();
     if (e.includes("hand_landmarker")) return "Model file missing. Add \"python download_models.py\" to the Render Build Command, then Clear build cache & deploy.";
     if (e.includes("libgles") || e.includes("libegl") || e.includes("libgl.")) return "MediaPipe needs a system GL library that Render does not have. Pin mediapipe==0.10.21 (bundled libs): push the latest download_models.py + requirements.txt, then Clear build cache & deploy.";
     if (e.includes("solutions")) return "MediaPipe is too new for the old API. Deploy the latest engine.py (Tasks API).";
-    if (e.includes("import") || e.includes("no module") || e.includes("not installed")) return "MediaPipe is not installed. Build Command must include: pip install --no-deps mediapipe==0.10.35";
+    if (e.includes("import") || e.includes("no module") || e.includes("not installed")) return "MediaPipe is not installed on the server (Python " + (h.python || "?") + "). Build log should show \"ok mediapipe==0.10.21 installed\". mediapipe 0.10.21 needs Python 3.9-3.12: add a .python-version file containing 3.12.3 to the repo root, then Clear build cache & deploy.";
     return "Open Render → Logs and search \"MediaPipe\" for the exact error.";
   }
   function closeFingerNotice() { const n = document.getElementById("fingerNotice"); if (n) n.remove(); }
