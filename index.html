@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>FFace Attendance Terminal</title>
+<title>MinMoe — Face Attendance Terminal</title>
 <style>
 :root {
   --bg: #030712;
@@ -2719,7 +2719,7 @@ renderDashboard();
         if (res.state === 'running') {
           const two = (res.steps || 1) === 2;
           if (res.stage === 'finger') {                                /* Step 2/2 */
-            setFingers(res.fingers || [], video);
+            setFingers(res.face_present === false ? [] : (res.fingers || []), video);
             const n = res.target_fingers;
             setScanStatus('Step 2/2 · Show ' + n + (n === 1 ? ' finger' : ' fingers'), 'detecting');
           } else {                                                     /* Step 1/2 */
@@ -2756,7 +2756,8 @@ renderDashboard();
       else { setScanStatus('Employee record missing on this device', 'fail'); toast('Employee ' + res.employee_id + ' not found locally', 'err'); }
     } else {
       draw(res.box, '#f43f5e', 3);
-      setScanStatus(res.message, 'fail'); toast(res.message, 'err');
+      if (res.status === 'FACE_LOST') { setScanStatus('FACE_LOST - REJECT/RESET - back to Step 1', 'fail'); toast('FACE_LOST: ' + res.message, 'err'); }
+      else { setScanStatus(res.message, 'fail'); toast(res.message, 'err'); }
       await sleep(1500);
     }
     if (res.state !== 'idle') setTimeout(hideHud, 1600);

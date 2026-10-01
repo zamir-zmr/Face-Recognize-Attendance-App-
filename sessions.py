@@ -26,13 +26,17 @@ SEARCH_TIMEOUT = 3.0
 HARD_TIMEOUT = 60.0
 MOTION_MIN = 0.45               # mean abs pixel diff (0-255) of fixed face ROI across the liveness frames
 UNKNOWN_LIMIT = 8
-FINGER_TARGETS = tuple(int(x) for x in os.getenv("FINGER_TARGETS", "1,2,3,4").split(",") if x.strip())
+FINGER_TARGETS = tuple(int(x) for x in os.getenv("FINGER_TARGETS", "1,2,3,4,5").split(",") if x.strip())
 FINGER_HOLD = 3                     # consecutive frames with the exact requested count
 FINGER_TIMEOUT = float(os.getenv("FINGER_TIMEOUT_S", 12))
-FINGER_FACE_GRACE = 3.5             # face may be hidden briefly by the hand
+FINGER_FACE_GRACE = 0.0             # STRICT: no grace - face must be present in EVERY finger-step frame
+FINGER_MIN_SCORE = 0.6              # detector confidence below this = face obstructed / not a clear real face
+FINGER_MAX_YAW = 0.35               # face turned away beyond this = lost
+FINGER_CENTER_X = 0.30              # face centre must stay within +-30% of frame centre (x)
+FINGER_CENTER_Y = 0.32              # ... and +-32% (y)
 STEP_LINK_THRESHOLD = float(os.getenv("STEP_LINK_THRESHOLD", 0.25))   # same person in step 1 and step 2 (relaxed: hand may cover face)
-SWAP_FRAMES = 2                     # consecutive non-matching identity checks in step 2 before "person changed"
-FACE_CHECK_S = 0.6                  # step 2: face detect + embed runs at most this often; every frame is spent on the hand
+SWAP_FRAMES = 1                     # consecutive non-matching identity checks in step 2 before "person changed"
+FACE_CHECK_S = 0.0                  # STRICT: face detect + identity runs on EVERY frame of step 2
 REQUIRE_FINGER = True               # BOTH steps are mandatory: no face-only fallback, ever
 
 _lock = threading.Lock()
@@ -87,6 +91,10 @@ def _save(s: Session):
         _redis.setex("face:sess:" + s.sid, SESSION_TTL, pickle.dumps(s, protocol=4))
     else:
         _mem[s.sid] = s
+
+
+def save(s: Session):
+    _save(s)
 
 
 def get(sid: str) -> Session | None:
@@ -162,10 +170,22 @@ def _finish(s: Session, state: str, message: str, face=None, shape=None, **extra
     if state == "passed" and not (s.face_done and s.finger_done and s.emp):   # hard gate: both challenges required
         state, message, extra = "failed", "Both face and finger challenges are required", dict(extra, reason="incomplete")
     s.done = True
+    if state != "passed":                                       # any failure -> back to Step 1, nothing stays verified
+        s.face_done = s.finger_done = False
+        s.stage = "search"
     s.result = _resp(s, state, message, face, shape, **extra)
     if state == "passed":
+        s.stage = "passed"
+        s.result["stage"] = "passed"
         s.result["employee_id"] = s.emp
         s.result["score"] = round(s.score, 3)
+        s.result["status"], s.result["action"] = "VERIFIED / SUCCESS", "ACCEPT"
+    elif extra.get("reason") == "face_lost":
+        s.result["status"], s.result["action"] = "FACE_LOST", "REJECT/RESET"
+        s.result["reset_to_step"] = 1
+    else:
+        s.result["action"] = "REJECT/RESET"
+        s.result["reset_to_step"] = 1
     return s.result
 
 
@@ -179,49 +199,55 @@ def _start_finger(s: Session, now: float):
     s.face_chk_t, s.last_face_t = now, now
 
 
+def _face_lost(s: Session, why: str, **info) -> dict:
+    """Face missing / off-centre / obstructed / turned away during the finger challenge -> instant FACE_LOST + reset to Step 1.
+    Finger detection is NEVER run in this case."""
+    return _finish(s, "failed", "FACE_LOST - " + why + " - restarting from Step 1", reason="face_lost",
+                   target_fingers=s.f_target, face_present=False, **info)
+
+
 def _finger_step(s: Session, bgr: np.ndarray, now: float) -> dict:
-    """Step 2/2. The employee is already known from step 1. Every frame goes to hand tracking (fast); the slower face
-    detect + identity re-check runs only every FACE_CHECK_S so nobody can swap in between the two steps."""
+    """Step 2/2 (STRICT). Every single frame: the real face must be detected, clear, centred, facing the camera, alone, and
+    still the same employee as in step 1. Only then is the hand analysed - on that SAME frame. One failed frame = FACE_LOST."""
     frame, luma, low = prepare(bgr)
     shape = frame.shape
+    H, W = shape[:2]
     info = {"luma": round(luma, 1), "low_light": low}
     if now > s.f_deadline:
         return _finish(s, "failed", "Timed out - %s" % _fmsg(s.f_target).lower(), reason="timeout",
                        target_fingers=s.f_target, box=s.face_box, **info)
-    if now - s.last_face_t > FINGER_FACE_GRACE:
-        return _finish(s, "failed", "Keep your face in view", reason="noface", target_fingers=s.f_target, **info)
 
-    if now - s.face_chk_t >= FACE_CHECK_S:                      # periodic identity re-check
-        s.face_chk_t = now
-        faces = engine.detect(frame, low)
-        if faces:
-            face = faces[0]
-            s.last_face_t = now
-            H, W = shape[:2]
-            s.face_box = [float(face[0]) / W, float(face[1]) / H, float(face[2]) / W, float(face[3]) / H]
-            if len(faces) > 1 and faces[1][2] * faces[1][3] > 0.5 * face[2] * face[3]:
-                s.f_hold = 0
-                return _resp(s, "running", "Multiple faces - one person only", target_fingers=s.f_target,
-                             box=s.face_box, **info)
-            sim = store.similarity(s.emp, engine.embed(frame, face))
-            if sim >= STEP_LINK_THRESHOLD:
-                s.swap, s.link_t = 0, now
-            else:
-                s.swap += 1
-                if s.swap >= SWAP_FRAMES:
-                    return _finish(s, "failed", "Person changed between steps", reason="person_changed",
-                                   target_fingers=s.f_target, box=s.face_box, **info)
+    faces = engine.detect(frame, low)
+    if not faces:
+        return _face_lost(s, "face not visible", **info)
+    face = faces[0]
+    s.face_box = [float(face[0]) / W, float(face[1]) / H, float(face[2]) / W, float(face[3]) / H]
+    if len(faces) > 1 and faces[1][2] * faces[1][3] > 0.5 * face[2] * face[3]:
+        return _face_lost(s, "multiple faces", box=s.face_box, **info)
+    if face[14] < FINGER_MIN_SCORE or face[2] < MIN_FACE_FRAC * W:
+        return _face_lost(s, "face obstructed or too small", box=s.face_box, **info)
+    cx, cy = (face[0] + face[2] / 2) / W, (face[1] + face[3] / 2) / H
+    if abs(cx - 0.5) > FINGER_CENTER_X or abs(cy - 0.5) > FINGER_CENTER_Y:
+        return _face_lost(s, "face out of frame / not centered", box=s.face_box, **info)
+    yaw, _ = pose_metrics(face)
+    if abs(yaw) > FINGER_MAX_YAW:
+        return _face_lost(s, "face turned away", box=s.face_box, **info)
+    sim = store.similarity(s.emp, engine.embed(frame, face))
+    if sim < STEP_LINK_THRESHOLD:
+        return _finish(s, "failed", "Person changed between steps - restarting from Step 1", reason="person_changed",
+                       target_fingers=s.f_target, box=s.face_box, **info)
+    s.last_face_t = s.link_t = now
 
-    hand = engine.analyze_hand(frame)
+    hand = engine.analyze_hand(frame)                           # same frame as the face above
     count = hand["count"] if hand else None
     extra = dict(count=count, fingers=hand["fingers"] if hand else [], hand_box=hand["box"] if hand else None,
-                 target_fingers=s.f_target, box=s.face_box, **info)
-    if count == s.f_target and now - s.link_t <= FINGER_FACE_GRACE:
+                 target_fingers=s.f_target, box=s.face_box, face_present=True, **info)
+    if count == s.f_target:
         s.f_hold += 1
         if s.f_hold >= FINGER_HOLD:
             s.finger_done = True
-            s.stage = "passed"                                  # Step 2/2 done -> attendance can be logged
-            return _finish(s, "passed", "Verified", **extra)
+            s.stage = "passed"
+            return _finish(s, "passed", "VERIFIED / SUCCESS", **extra)
     else:
         s.f_hold = 0
     return _resp(s, "running", "Step 2/2: " + _fmsg(s.f_target), **extra)

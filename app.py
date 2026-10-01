@@ -237,6 +237,8 @@ def attendance_add(body: dict):
     if not (sess and sess.done and sess.face_done and sess.finger_done and sess.emp == emp):
         raise HTTPException(403, "Face + finger verification required before attendance")
     body = {k: v for k, v in body.items() if k != "session_id"}
+    sess.face_done = sess.finger_done = False        # single use: a verified session can log attendance only once
+    sessions.save(sess)
     return {"ok": store.log_attendance(emp, body)}
 
 
