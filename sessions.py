@@ -1,7 +1,7 @@
 """Two-step verification. Step 1/2: straight-face recognition (no head-pose challenge) with a passive micro-motion
 liveness check. Step 2/2: random finger-count challenge (hand tracked, overlay points returned). Attendance passes only
 after both, and the face seen while showing fingers must still match the employee recognised in step 1.
-Challenges are chosen server-side. When hand tracking is unavailable and REQUIRE_FINGER=0, step 1 alone is enough."""
+Challenges are chosen server-side. If hand tracking is unavailable the session fails (attendance is never granted on the face step alone)."""
 import os
 import pickle
 import secrets
@@ -33,7 +33,7 @@ FINGER_FACE_GRACE = 3.5             # face may be hidden briefly by the hand
 STEP_LINK_THRESHOLD = float(os.getenv("STEP_LINK_THRESHOLD", 0.25))   # same person in step 1 and step 2 (relaxed: hand may cover face)
 SWAP_FRAMES = 2                     # consecutive non-matching identity checks in step 2 before "person changed"
 FACE_CHECK_S = 0.6                  # step 2: face detect + embed runs at most this often; every frame is spent on the hand
-REQUIRE_FINGER = os.getenv("REQUIRE_FINGER", "1") != "0"   # 0 = face-only fallback when hand tracking is unavailable
+REQUIRE_FINGER = True               # BOTH steps are mandatory: no face-only fallback, ever
 
 _lock = threading.Lock()
 SESSION_TTL = 90
@@ -56,6 +56,7 @@ class Session:
     result: dict | None = None
     score: float = 0.0
     face_done: bool = False         # Step 1/2 complete: face matched an employee + liveness ok
+    finger_done: bool = False       # Step 2/2 complete: requested finger count held
     use_fingers: bool = True
     f_target: int | None = None
     f_deadline: float = 0.0
@@ -145,7 +146,7 @@ def _resp(s: Session, state: str, message: str, face=None, frame_shape=None, **e
     out = {"state": state, "stage": s.stage, "message": message,
            "step": (2 if s.stage in ("finger", "passed") else 1) if s.use_fingers else 1,
            "steps": 2 if s.use_fingers else 1,
-           "face_verified": s.face_done}
+           "face_verified": s.face_done, "finger_verified": s.finger_done}
     if s.face_done:
         out["employee_id"] = s.emp
     if s.stage == "finger":
@@ -158,6 +159,8 @@ def _resp(s: Session, state: str, message: str, face=None, frame_shape=None, **e
 
 
 def _finish(s: Session, state: str, message: str, face=None, shape=None, **extra):
+    if state == "passed" and not (s.face_done and s.finger_done and s.emp):   # hard gate: both challenges required
+        state, message, extra = "failed", "Both face and finger challenges are required", dict(extra, reason="incomplete")
     s.done = True
     s.result = _resp(s, state, message, face, shape, **extra)
     if state == "passed":
@@ -216,6 +219,7 @@ def _finger_step(s: Session, bgr: np.ndarray, now: float) -> dict:
     if count == s.f_target and now - s.link_t <= FINGER_FACE_GRACE:
         s.f_hold += 1
         if s.f_hold >= FINGER_HOLD:
+            s.finger_done = True
             s.stage = "passed"                                  # Step 2/2 done -> attendance can be logged
             return _finish(s, "passed", "Verified", **extra)
     else:
@@ -259,7 +263,7 @@ def step(s: Session, bgr: np.ndarray) -> dict:
         return _resp(s, "running", "Move closer to the camera", face, shape, **info)
 
     if s.stage == "search":
-        if not s.use_fingers and REQUIRE_FINGER:
+        if not s.use_fingers:
             return _finish(s, "failed", "Finger challenge unavailable on server - see notice", face, shape,
                            reason="finger_unavailable", **info)
         s.stage, s.ident_t = "identify", now
@@ -288,11 +292,10 @@ def step(s: Session, bgr: np.ndarray) -> dict:
     if float(np.mean(s.diffs[-LIVE_FRAMES:])) < MOTION_MIN:
         return _finish(s, "failed", "Spoof suspected (static image/frozen video)", face, shape, reason="spoof", **info)
 
-    s.face_done = True                                          # Step 1/2 complete
-    if s.use_fingers:
-        _start_finger(s, now)
-        H, W = shape[:2]
-        s.face_box = [float(face[0]) / W, float(face[1]) / H, float(face[2]) / W, float(face[3]) / H]
-        return _resp(s, "running", "Face Verification Complete", face, shape, **info)
-    s.stage = "passed"                                          # hand tracking off + REQUIRE_FINGER=0 -> face-only
-    return _finish(s, "passed", "Verified", face, shape, **info)
+    s.face_done = True                                          # Step 1/2 complete (attendance NOT granted yet)
+    if not s.use_fingers:
+        return _finish(s, "failed", "Finger challenge unavailable on server - see notice", face, shape,
+                       reason="finger_unavailable", **info)
+    _start_finger(s, now)
+    s.face_box = [float(face[0]) / W, float(face[1]) / H, float(face[2]) / W, float(face[3]) / H]
+    return _resp(s, "running", "Face Verification Complete", face, shape, **info)

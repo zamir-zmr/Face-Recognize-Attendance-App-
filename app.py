@@ -233,6 +233,10 @@ def attendance_add(body: dict):
     emp = str(body.get("empId") or body.get("employee_id") or "").strip()
     if not emp:
         raise HTTPException(400, "empId required")
+    sess = sessions.get(str(body.get("session_id") or ""))
+    if not (sess and sess.done and sess.face_done and sess.finger_done and sess.emp == emp):
+        raise HTTPException(403, "Face + finger verification required before attendance")
+    body = {k: v for k, v in body.items() if k != "session_id"}
     return {"ok": store.log_attendance(emp, body)}
 
 

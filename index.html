@@ -2056,11 +2056,8 @@ async function runFaceScan(){
   }
 
   ctx.strokeStyle = '#10b981'; ctx.lineWidth = 3; ctx.strokeRect(box.x, box.y, box.width, box.height);
-  setScanStatus('Verified: ' + emp.name, 'success');
-  announceFaceVerified(emp.name);
-
-  /* Attendance is ONLY recorded once the face is recognised and the micro-motion liveness check passes. */
-  logAttendance(emp, 'Face Recognition');
+  /* Legacy face-only path: attendance is NOT recorded here (finger challenge is mandatory, handled by the server flow). */
+  setScanStatus('Server offline - finger challenge required', 'fail');
   isProcessingFrame = false;
 }
 
@@ -2665,7 +2662,7 @@ renderDashboard();
   }
 
   window.runFaceScan = async function () {
-    if (!backend.ok) return _origRunFaceScan();
+    if (!backend.ok) { isProcessingFrame = false; setScanStatus('Server offline - Face + Finger verification needs the server', 'fail'); scanGapMs = 1500; return; }
     isProcessingFrame = true;
     const video = document.getElementById('video');
     const overlay = document.getElementById('overlay');
@@ -2716,8 +2713,8 @@ renderDashboard();
         break;
       }
     } catch (e) {
-      backend.ok = false;                                   /* next scan falls back to face-api */
-      res = null;
+      res = null;                                           /* never fall back to face-only: attendance needs BOTH challenges */
+      toast('Verification interrupted - try again', 'err');
     }
 
     isVerifyingLiveness = false;
@@ -2731,10 +2728,13 @@ renderDashboard();
       draw(res.box, '#f43f5e', 3);
       if (res.message === 'No face records enrolled') { setScanStatus('Syncing face records to server…', 'detecting'); scanGapMs = 2000; syncMissing(); }
       else { setScanStatus(res.message, 'fail'); scanGapMs = 450; }
+    } else if (res.state === 'passed' && !(res.face_verified && res.finger_verified && res.stage === 'passed')) {
+      draw(res.box, '#f43f5e', 3);
+      setScanStatus('Face + Finger both required', 'fail'); toast('Face + Finger both required', 'err');
     } else if (res.state === 'passed') {
       draw(res.box, '#10b981', 3);
       const emp = employees.find(e => e.id === res.employee_id);
-      if (emp) { setScanStatus('Verified: ' + emp.name, 'success'); logAttendance(emp, 'Face Recognition'); }
+      if (emp) { setScanStatus('Verified: ' + emp.name, 'success'); logAttendance(emp, 'Face + Finger Verification'); }
       else { setScanStatus('Employee record missing on this device', 'fail'); toast('Employee ' + res.employee_id + ' not found locally', 'err'); }
     } else {
       draw(res.box, '#f43f5e', 3);
