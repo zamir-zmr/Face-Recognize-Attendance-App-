@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Face Attendance Terminal</title>
+<title>MinMoe — Face Attendance Terminal</title>
 <style>
 :root {
   --bg: #030712;
@@ -2469,9 +2469,11 @@ renderDashboard();
   }
   { const el0 = document.getElementById("modelStatus"); if (el0) el0.addEventListener("click", () => { if (handsIssue) showFingerNotice(handsIssue); }); }
 
+  let pingFails = 0;
   async function ping() {
     try {
-      const h = await api('/api/health', {}, 2500);
+      const h = await api('/api/health', {}, 6000);
+      pingFails = 0;
       backend.ok = !!h.ok;
       const el = statusEl();
       handsIssue = (backend.ok && h.hands === false) ? h : null;
@@ -2482,7 +2484,7 @@ renderDashboard();
       } else { noticeKey = ""; closeFingerNotice(); }
       /* server lost its embeddings (restart / ephemeral disk) or never had them -> rebuild from stored photos */
       if (backend.ok && h.enrolled < employees.filter(e => e.photo && !syncFailed.has(e.id)).length) syncMissing();
-    } catch (e) { backend.ok = false; }
+    } catch (e) { if (++pingFails >= 2) backend.ok = false; }   /* one slow ping must not flip the scanner offline */
   }
 
   /* Legacy face-api descriptors are not portable to the server's SFace model, so re-derive from the saved photos. */
@@ -2534,7 +2536,7 @@ renderDashboard();
   }
   window.faceBackendDelete = id => backend.ok ? api('/api/enroll/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {}) : null;
   window.faceBackendImport = recs => backend.ok ? api('/api/employees/import', { method: 'POST', body: JSON.stringify({ employees: recs }) }, 90000).catch(() => null) : null;
-  ping(); setInterval(ping, 20000);
+  ping(); setInterval(ping, 10000);
 
   const cap = document.createElement('canvas'), cctx = cap.getContext('2d');
   function grab(src, w = CFG.width, q = CFG.quality) {
@@ -2662,7 +2664,7 @@ renderDashboard();
   }
 
   window.runFaceScan = async function () {
-    if (!backend.ok) { isProcessingFrame = false; setScanStatus('Server offline - Face + Finger verification needs the server', 'fail'); scanGapMs = 1500; return; }
+    if (!backend.ok) { setScanStatus('Connecting to server…', 'detecting'); scanGapMs = 700; await ping(); isProcessingFrame = false; return; }
     isProcessingFrame = true;
     const video = document.getElementById('video');
     const overlay = document.getElementById('overlay');
@@ -2680,14 +2682,30 @@ renderDashboard();
       ctx.strokeRect(box[0] * overlay.width, box[1] * overlay.height, box[2] * overlay.width, box[3] * overlay.height);
     };
 
-    let sid, res = null, fast = false, announced = false;
-    try { sid = (await api('/api/verify/start', { method: 'POST', body: '{}' })).session_id; }
-    catch (e) { backend.ok = false; isProcessingFrame = false; return; }
+    let sid, res = null, fast = false, announced = false, errs = 0;
+    for (let i = 0; i < 3 && !sid; i++) {                  /* cold/slow server: retry quietly instead of failing */
+      try { sid = (await api('/api/verify/start', { method: 'POST', body: '{}' }, 6000)).session_id; }
+      catch (e) { await sleep(500 * (i + 1)); }
+    }
+    if (!sid) { setScanStatus('Connecting to server…', 'detecting'); scanGapMs = 800; ping(); isProcessingFrame = false; return; }
 
     try {
       while (scanStream) {
         updateFlashlightState(video);
-        res = await api('/api/verify/frame', { method: 'POST', body: JSON.stringify({ session_id: sid, image: fast ? grab(video, CFG.fingerWidth, CFG.fingerQuality) : grab(video, CFG.width) }) }, 5000);
+        try {
+          res = await api('/api/verify/frame', { method: 'POST', body: JSON.stringify({ session_id: sid, image: fast ? grab(video, CFG.fingerWidth, CFG.fingerQuality) : grab(video, CFG.width) }) }, 8000);
+          errs = 0;
+        } catch (fe) {                                       /* one dropped/slow frame must not kill the scan */
+          errs++;
+          if (!scanStream || errs > 5) throw fe;
+          if (/session/i.test(fe.message || '')) {           /* session lost (server restart / other worker) -> fresh one, silently */
+            sid = (await api('/api/verify/start', { method: 'POST', body: '{}' }, 6000)).session_id;
+            fast = false; announced = false; clearFingers();
+          }
+          setScanStatus('Reconnecting…', 'detecting');
+          await sleep(200 * errs);
+          continue;
+        }
         if (res.stage !== 'search') isVerifyingLiveness = true;
         guide.classList.toggle('active', !!res.box);
         draw(res.box, '#38bdf8');
@@ -2714,7 +2732,7 @@ renderDashboard();
       }
     } catch (e) {
       res = null;                                           /* never fall back to face-only: attendance needs BOTH challenges */
-      toast('Verification interrupted - try again', 'err');
+      setScanStatus('Connection unstable - retrying…', 'detecting'); scanGapMs = 500; ping();
     }
 
     isVerifyingLiveness = false;
