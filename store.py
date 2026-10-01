@@ -21,6 +21,7 @@ import numpy as np
 
 DATA_DIR = Path(os.getenv("FACE_DATA_DIR", Path(__file__).parent / "data"))
 DB_FILE = DATA_DIR / "embeddings.npz"
+ORPHAN_GRACE_S = 1200   # face data of a non-existent employee is purged only after this long (enroll happens before the employee is saved)
 REFRESH_S = 3.0   # how often to check the remote store for changes made by other workers
 
 FIREBASE_CONFIG = {
@@ -294,7 +295,9 @@ def _make_backend():
 
 class Store:
     def __init__(self):
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._valid = None                  # Firebase keys of existing employees (None = unknown -> no masking)
+        self._orphans: dict[str, float] = {}
         self._be = _make_backend()
         self.backend = self._be.name
         self._next_check = 0.0
@@ -302,6 +305,7 @@ class Store:
         self._vecs: dict[str, np.ndarray] = {}
         self._snap = ([], np.zeros((0, 128), np.float32))   # (ids, matrix) replaced atomically
         self._reload()
+        self._refresh_valid()
 
     def _reload(self):
         self._vecs = self._be.load_all()
@@ -309,9 +313,32 @@ class Store:
         self._rebuild()
 
     def _rebuild(self):
-        ids = list(self._vecs)
+        ids = [i for i in self._vecs if self._valid is None or Firebase.key(i) in self._valid]   # ghost faces never match
         mat = np.stack([self._vecs[i] for i in ids]).astype(np.float32) if ids else np.zeros((0, 128), np.float32)
         self._snap = (ids, mat)     # single assignment -> readers never see mismatched ids/mat
+
+    def _refresh_valid(self):
+        """The `employees` node is the source of truth: face data without an employee is masked from matching/duplicate
+        checks immediately and purged after a grace period (never when the employee list is empty -> no cascade after an incident)."""
+        if not fb.enabled:
+            return
+        try:
+            keys = fb.get("employees", shallow=True)
+        except Exception as e:  # noqa: BLE001
+            print("[store] employee list unavailable:", e)
+            return
+        valid = set(keys or {})
+        now = time.time()
+        if valid:
+            for i in list(self._vecs):
+                if Firebase.key(i) in valid:
+                    self._orphans.pop(i, None)
+                elif now - self._orphans.setdefault(i, now) > ORPHAN_GRACE_S:
+                    self.delete(i)
+                    self._orphans.pop(i, None)
+        if valid != self._valid:
+            self._valid = valid
+            self._rebuild()
 
     def _maybe_refresh(self):
         if self.backend not in ("postgres", "firebase") or time.time() < self._next_check:
@@ -326,29 +353,33 @@ class Store:
                     self._reload()
             except Exception as e:  # noqa: BLE001
                 print("[store] refresh failed:", e)
+            self._refresh_valid()
 
     def put(self, emp_id: str, vec: np.ndarray):
         with self._lock:
+            self._orphans.pop(emp_id, None)
             self._be.put(emp_id, vec, {**self._vecs, emp_id: vec.astype(np.float32)})   # persist first
             self._vecs[emp_id] = vec.astype(np.float32)
             self._sig = self._be.signature()
             self._rebuild()
 
-    def delete(self, emp_id: str) -> bool:
+    def delete(self, emp_id: str, full: bool = False) -> bool:
+        """Removes ONE employee id. Face data (memory, local cache, Postgres/Firebase profile, image) always;
+        full=True also removes the employee record and leaves a delete marker. Nothing else is ever touched."""
         emp_id = (emp_id or "").strip()
         if not emp_id:
             raise ValueError("employee id required")
-        """Full purge: memory + local cache + Postgres/Firebase face profile, face image, employee record; leaves a delete marker."""
+        key = Firebase.key(emp_id)
         with self._lock:
             rest = {k: v for k, v in self._vecs.items() if k != emp_id}
             self._be.delete(emp_id, rest)
             self._vecs = rest
             self._sig = self._be.signature()
-            self._rebuild()
+            self._rebuild()                                  # matcher array recalculated without this face
         if fb.enabled:
-            key = Firebase.key(emp_id)
-            self._sync(lambda: (fb.put("deleted_employees/" + key, {".sv": "timestamp"}), fb.delete("employees/" + key),
-                                fb.delete_image("face_images/%s/profile.jpg" % key)), "employee purge")
+            self._sync(lambda: fb.delete_image("face_images/%s/profile.jpg" % key), "image purge")
+            if full:
+                self._sync(lambda: (fb.put("deleted_employees/" + key, {".sv": "timestamp"}), fb.delete("employees/" + key)), "employee purge")
         return True
 
     def keep_only(self, keep: list[str]) -> int:
@@ -411,7 +442,11 @@ class Store:
         return path if ok else None
 
     def upsert_employee(self, emp_id: str, data: dict) -> bool:
-        return self._sync(lambda: fb.patch("employees/" + Firebase.key(emp_id), {**data, "id": emp_id}), "employee sync")
+        key = Firebase.key(emp_id)
+        def go():
+            fb.delete("deleted_employees/" + key)            # (re-)adding an id lifts its delete marker
+            fb.patch("employees/" + key, {**data, "id": emp_id})
+        return self._sync(go, "employee sync")
 
     def delete_employee(self, emp_id: str) -> bool:
         return self._sync(lambda: fb.delete("employees/" + Firebase.key(emp_id)), "employee delete")

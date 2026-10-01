@@ -979,7 +979,7 @@ function askConfirm(title, msg, okText){
   });
 }
 let remoteEmp = {}, empReady = false;
-const purgedBackend = new Set(); let tombKeys = [];
+const purgedBackend = new Set(), importingKeys = new Set(); let tombKeys = [];
 function purgeLocal(keys){                        /* remove deleted employees from every browser-side copy */
   const ks = new Set(keys);
   [LS_EMP, LS_EMP + '_bak'].forEach(n => { try{
@@ -988,7 +988,7 @@ function purgeLocal(keys){                        /* remove deleted employees fr
   }catch(e){} });
 }
 function purgeBackend(){                          /* make sure the Python server also dropped them (retries until it is reachable) */
-  tombKeys.forEach(k => { if(purgedBackend.has(k) || !window.faceBackendDelete) return;
+  tombKeys.forEach(k => { if(purgedBackend.has(k) || importingKeys.has(k) || !window.faceBackendDelete) return;
     const p = window.faceBackendDelete(decodeURIComponent(k)); if(p) purgedBackend.add(k); });
 }
 setInterval(purgeBackend, 15000);
@@ -1031,8 +1031,15 @@ async function fbDeleteEmployee(rawId){           /* removes ONLY this employee 
   if(window.faceBackendDelete) window.faceBackendDelete(id);
 }
 async function saveEmployees(list){               /* upsert only the given records */
-  try{ for(const e of (list || [])) await fbPutEmployee(e); return true; }
-  catch(err){ toast('Firebase sync failed: ' + err.message, 'err'); return false; }
+  list = list || [];
+  const keys = list.map(e => fbKey(safeId(e.id)));
+  keys.forEach(k => { importingKeys.add(k); purgedBackend.delete(k); });   /* no pending server purge may hit an id being (re)added */
+  try{
+    await Promise.all(keys.map(k => safeRef('deleted_employees/' + k).remove()));   /* lift all delete markers first */
+    for(const e of list) await fbPutEmployee(e);
+    return true;
+  }catch(err){ toast('Firebase sync failed: ' + err.message, 'err'); return false; }
+  finally{ setTimeout(() => keys.forEach(k => importingKeys.delete(k)), 8000); }
 }
 function saveLogs(entry){
   if(!entry) return;
@@ -1362,23 +1369,29 @@ document.getElementById('importJsonInput').addEventListener('change', (e)=>{
   const reader = new FileReader();
   reader.onload = (evt)=>{
     try{
-      const imported = JSON.parse(evt.target.result);
-      if(!Array.isArray(imported)){
-        toast('Invalid JSON format', 'err');
-        return;
-      }
+      let imported = JSON.parse(evt.target.result);
+      if(imported && !Array.isArray(imported)) imported = Array.isArray(imported.employees) ? imported.employees : Object.values(imported);
+      if(!Array.isArray(imported)){ toast('Invalid JSON format', 'err'); return; }
       let addedCount = 0, updatedCount = 0, skipped = 0;
       const seen = new Set(), batch = [];
       imported.forEach(imp=>{
-        const id = imp && typeof imp.id === 'string' ? imp.id.trim() : '';
-        if(!id || !imp.name || seen.has(id)){ skipped++; return; }
+        const id = imp && (imp.id ?? imp.emp_id ?? imp.employee_id) != null ? String(imp.id ?? imp.emp_id ?? imp.employee_id).trim() : '';
+        if(!id || seen.has(id)){ skipped++; return; }
         seen.add(id);
+        const { emp_id, employee_id, photoUrl, ...rest } = imp;
         const cur = employees.find(e=>e.id === id);
         if(cur) updatedCount++; else addedCount++;
-        batch.push(cur ? { ...cur, ...imp, id } : { ...imp, id });
+        batch.push({ ...(cur || {}), ...rest, id, name: String(rest.name || (cur && cur.name) || id) });
       });
       if(!batch.length){ toast('No valid employee records in file', 'err'); e.target.value = ''; return; }
-      saveEmployees(batch).then(ok => { if(ok) toast(`Imported to Firebase: ${addedCount} added, ${updatedCount} updated${skipped ? ', ' + skipped + ' skipped' : ''}`, 'ok'); });
+      batch.forEach(r => { const i = employees.findIndex(x => x.id === r.id); if(i >= 0) employees[i] = r; else employees.push(r); });
+      renderEmployees(); renderDashboard();                      /* instant UI; Firebase listener takes over */
+      saveEmployees(batch).then(ok => {
+        if(!ok) return;
+        toast(`Imported to Firebase: ${addedCount} added, ${updatedCount} updated${skipped ? ', ' + skipped + ' skipped' : ''}`, 'ok');
+        const p = window.faceBackendImport && window.faceBackendImport(batch);      /* server: store face embeddings from photos */
+        if(p) p.then(r => { if(r) toast(`Face data on server: ${r.enrolled} enrolled` + (r.failed.length ? `, ${r.failed.length} need re-capture` : ''), r.failed.length ? 'err' : 'ok'); }).catch(()=>{});
+      });
     }catch(err){
       toast('Failed to parse JSON file', 'err');
     }
@@ -2503,6 +2516,7 @@ renderDashboard();
     }
   }
   window.faceBackendDelete = id => backend.ok ? api('/api/enroll/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {}) : null;
+  window.faceBackendImport = recs => backend.ok ? api('/api/employees/import', { method: 'POST', body: JSON.stringify({ employees: recs }) }, 90000).catch(() => null) : null;
   ping(); setInterval(ping, 20000);
 
   const cap = document.createElement('canvas'), cctx = cap.getContext('2d');

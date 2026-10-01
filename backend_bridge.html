@@ -35,7 +35,8 @@
       if (backend.ok && el) { el.textContent = 'Python Face Engine ✓'; el.style.color = 'var(--ok)'; }
     } catch (e) { backend.ok = false; }
   }
-  window.faceBackendDelete = id => backend.ok ? api('/api/enroll/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {}) : null;   /* used by index.html when an employee is deleted */
+  window.faceBackendDelete = id => backend.ok ? api('/api/enroll/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {}) : null;
+  window.faceBackendImport = recs => backend.ok ? api('/api/employees/import', { method: 'POST', body: JSON.stringify({ employees: recs }) }, 90000).catch(() => null) : null;   /* used by index.html when an employee is deleted */
   ping(); setInterval(ping, 20000);
 
   const cap = document.createElement('canvas'), cctx = cap.getContext('2d');
