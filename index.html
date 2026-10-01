@@ -659,7 +659,7 @@ body.white-mode .scan-status.fail { color: #be123c !important; }
   .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 0.65rem; padding: 6px 2px; border-radius: 8px; }
   main { padding: 16px 12px 80px; height: auto; }
 }
-.keypad button.locked { opacity: .3; pointer-events: none; }
+.keypad button.locked { pointer-events: none; }
 .cf-bg { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 20px;
   background: rgba(2,6,23,.55); backdrop-filter: blur(6px); opacity: 0; pointer-events: none; transition: opacity .25s; }
 .cf-bg.show { opacity: 1; pointer-events: auto; }
@@ -979,8 +979,19 @@ function askConfirm(title, msg, okText){
   });
 }
 let remoteEmp = {}, empReady = false;
-let tomb = {}; const reviveIds = new Set();
-fdb.ref('deleted_employees').on('value', sn => { tomb = sn.val() || {}; }, () => {});
+const purgedBackend = new Set(); let tombKeys = [];
+function purgeLocal(keys){                        /* remove deleted employees from every browser-side copy */
+  const ks = new Set(keys);
+  [LS_EMP, LS_EMP + '_bak'].forEach(n => { try{
+    const arr = JSON.parse(localStorage.getItem(n) || 'null'); if(!Array.isArray(arr)) return;
+    localStorage.setItem(n, JSON.stringify(arr.filter(e => !ks.has(fbKey(e.id)))));
+  }catch(e){} });
+}
+function purgeBackend(){                          /* make sure the Python server also dropped them (retries until it is reachable) */
+  tombKeys.forEach(k => { if(purgedBackend.has(k) || !window.faceBackendDelete) return;
+    const p = window.faceBackendDelete(decodeURIComponent(k)); if(p) purgedBackend.add(k); });
+}
+setInterval(purgeBackend, 15000);
 const logCache = new Map();
 function rerender(){
   if(currentPage === 'dashboard') renderDashboard();
@@ -988,21 +999,19 @@ function rerender(){
   if(currentPage === 'reports') renderReports();
 }
 async function saveEmployees(){
-  if(!empReady){ toast('Employees still loading - wait a moment and retry', 'err'); return false; }
   try{
     const next = new Map(employees.map(e => [fbKey(e.id), e]));
     for(const k of Object.keys(remoteEmp)){
       if(next.has(k)) continue;
-      if(remoteEmp[k] && remoteEmp[k].deleted) continue;
+      await fdb.ref('deleted_employees/' + k).set(firebase.database.ServerValue.TIMESTAMP);
       await fdb.ref('employees/' + k).remove();
       fst.ref('face_images/' + k + '/profile.jpg').delete().catch(()=>{});
       fdb.ref('face_profiles/' + k).remove().then(() => fdb.ref('face_profiles').once('value'))
         .then(s => fdb.ref('face_meta').set({ count: s.numChildren(), updated_at: firebase.database.ServerValue.TIMESTAMP })).catch(()=>{});
+      purgeLocal([k]);
       if(window.faceBackendDelete) window.faceBackendDelete(remoteEmp[k].id);
     }
     for(const [k, e] of next){
-      if(!remoteEmp[k] && tomb[k] && !reviveIds.has(k)) continue;      /* deleted earlier - never silently re-add */
-      if(reviveIds.has(k) && tomb[k]){ try{ await fdb.ref('deleted_employees/' + k).remove(); delete tomb[k]; }catch(_){} }
       const old = remoteEmp[k] || {};
       const ref = fst.ref('face_images/' + k + '/profile.jpg');
       if(/^data:/.test(e.photo || '')){                       /* photo stays in the record (for export/import) + copy in Storage */
@@ -1012,6 +1021,7 @@ async function saveEmployees(){
         }
       } else if(!e.photo && old.photoUrl){ ref.delete().catch(()=>{}); delete e.photoUrl; }
       const rec = clean(e);
+      if(!remoteEmp[k]) await fdb.ref('deleted_employees/' + k).remove();      /* re-adding an ID lifts its tombstone */
       if(!remoteEmp[k] || sj(rec) !== sj(remoteEmp[k])) await fdb.ref('employees/' + k).set(rec);
     }
     return true;
@@ -1029,24 +1039,34 @@ function putLogs(byDate, dates){
   });
   logs = [...logCache.values()];
 }
-fdb.ref('employees').on('value', snap => {
+fdb.ref('employees').on('value', async snap => {
   remoteEmp = snap.val() || {};
-  employees = Object.values(remoteEmp).filter(e => e && !e.deleted).map(e => ({ ...e }));
-  if(!empReady){ empReady = true; migrateLocal(); }
+  let tomb = {};
+  try{ tomb = (await fdb.ref('deleted_employees').once('value')).val() || {}; }catch(e){}
+  Object.keys(remoteEmp).forEach(k => {            /* deleted employees can never come back (self-heals stale re-adds) */
+    if(tomb[k]){ fdb.ref('employees/' + k).remove().catch(()=>{}); delete remoteEmp[k]; }
+  });
+  tombKeys = Object.keys(tomb);
+  if(tombKeys.length){ purgeLocal(tombKeys); purgeBackend(); }
+  employees = Object.values(remoteEmp).map(e => ({ ...e }));
+  if(!empReady){
+    empReady = true;
+    await migrateLocal(tomb);
+    if(localStorage.getItem('fb_migrated2')){      /* old browser copy is stale now - never show/restore it again */
+      try{ localStorage.setItem(LS_EMP + '_bak', localStorage.getItem(LS_EMP) || '[]'); }catch(e){}
+      localStorage.removeItem(LS_EMP); localStorage.removeItem(LS_LOG);
+    }
+  }
   rerender();
 }, err => {                        /* read denied / offline: show the browser's saved copy instead of an empty list */
   try{ employees = JSON.parse(localStorage.getItem(LS_EMP) || '[]'); }catch(e){}
   toast('Firebase read failed: ' + err.message + ' - check Database rules', 'err');
   rerender();
 });
-/* slow / blocked connection watchdog: employee records carry photos, so the first load can take a while on mobile data */
-setTimeout(() => { if(!empReady){ toast('Employees still loading - slow network, retrying...', 'err'); try{ fdb.goOffline(); fdb.goOnline(); }catch(e){} } }, 12000);
-setTimeout(() => { if(!empReady) toast('Cannot load employees - check internet / Firebase rules', 'err'); }, 35000);
-fdb.ref('.info/connected').on('value', sn => { if(sn.val() === true && !empReady) rerender(); });
-async function migrateLocal(){           /* one-time upload of data previously kept in this browser */
+async function migrateLocal(tomb){           /* one-time upload of data previously kept in this browser */
   if(localStorage.getItem('fb_migrated2')) return;
   try{
-    const le = JSON.parse(localStorage.getItem(LS_EMP) || '[]');
+    const le = JSON.parse(localStorage.getItem(LS_EMP) || '[]').filter(e => !(tomb || {})[fbKey(e.id)]);
     const ll = JSON.parse(localStorage.getItem(LS_LOG) || '[]');
     let ok = true;
     if(le.length && !Object.keys(remoteEmp).length){ employees = le; ok = await saveEmployees(); }
@@ -1144,6 +1164,7 @@ function handleKey(k){
   renderDots();
 }
 function renderDots(){
+  keypad.querySelectorAll('button:not(.wide)').forEach(b=>b.classList.toggle('locked', pinBuffer.length >= 4));
   for(let i=0;i<pinDots.length;i++){
     pinDots[i].classList.toggle('on', i < pinBuffer.length);
   }
@@ -1259,11 +1280,11 @@ document.getElementById('retryModelsBtn').addEventListener('click', ()=>{ faceAp
 
 /* DASHBOARD */
 function renderDashboard(){
-  document.getElementById('statTotalEmp').textContent = empReady ? employees.length : '...';
+  document.getElementById('statTotalEmp').textContent = employees.length;
   const todays = logs.filter(l=>l.date===todayStr());
   document.getElementById('statInToday').textContent = todays.filter(l=>l.entrance).length;
   document.getElementById('statOutToday').textContent = todays.filter(l=>l.exit).length;
-  document.getElementById('statFaceReg').textContent = empReady ? employees.filter(e=>e.descriptor).length : '...';
+  document.getElementById('statFaceReg').textContent = employees.filter(e=>e.descriptor).length;
 
   const recent = logs.filter(l=>l.date===todayStr()).sort((a,b)=>(b.lastUpdated||0)-(a.lastUpdated||0)).slice(0,8);
   const body = document.getElementById('dashRecentBody');
@@ -1279,7 +1300,6 @@ function renderDashboard(){
 function renderEmployees(){
   const q = (document.getElementById('empSearch').value || '').trim().replace(/\s+/g,' ').toLowerCase();
   const grid = document.getElementById('empGrid');
-  if(!empReady){ grid.innerHTML = '<div class="empty">Loading employees from cloud...</div>'; return; }
   const filtered = employees.filter(e => e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q));
   grid.innerHTML = filtered.length ? filtered.map(e=>`
     <div class="emp-card">
@@ -1297,24 +1317,9 @@ function renderEmployees(){
   grid.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', async ()=>{
     const de = employees.find(e=>e.id === b.dataset.del);
     if(await askConfirm('Delete employee?', (de ? de.name : 'This employee') + ' will be removed from all devices (profile, photo and face data).', 'Delete')){
-      const did = b.dataset.del, dk = fbKey(did), drec = remoteEmp[dk] || de || {};
-      toast('Deleting...', 'ok');
-      const eref = fdb.ref('employees/' + dk);
-      try{ await eref.remove(); }catch(err){ console.warn('remove failed', err.message); }
-      try{
-        let still = (await eref.once('value')).exists();               /* verify on server */
-        if(still){ await eref.update({ deleted: true, deletedAt: Date.now() }); still = false; }   /* rules block delete -> soft delete */
-      }catch(err){ toast('Delete failed: ' + err.message, 'err'); return; }
-      fdb.ref('deleted_employees/' + dk).set(Date.now()).catch(()=>{});
-      tomb[dk] = Date.now();
-      employees = employees.filter(e=>e.id !== did);
-      delete remoteEmp[dk];
+      employees = employees.filter(e=>e.id !== b.dataset.del);
       renderEmployees(); renderDashboard();
-      toast('Employee deleted', 'ok');
-      fst.ref('face_images/' + dk + '/profile.jpg').delete().catch(()=>{});
-      fdb.ref('face_profiles/' + dk).remove().then(() => fdb.ref('face_profiles').once('value'))
-        .then(sn => fdb.ref('face_meta').set({ count: sn.numChildren(), updated_at: firebase.database.ServerValue.TIMESTAMP })).catch(()=>{});
-      if(window.faceBackendDelete) window.faceBackendDelete(drec.id || did);
+      saveEmployees().then(ok => toast(ok ? 'Employee deleted' : 'Delete NOT saved to Firebase - check rules/internet', ok ? 'ok' : 'err'));
     }
   }));
   grid.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click', ()=> openEmpModal(b.dataset.edit)));
@@ -1324,7 +1329,7 @@ document.getElementById('empSearch').addEventListener('input', renderEmployees);
 /* EMPLOYEE DATA JSON IMPORT & EXPORT */
 document.getElementById('exportJsonBtn').addEventListener('click', async ()=>{
   const byId = new Map(employees.map(e => [e.id, e]));              /* what the app shows now */
-  try{ Object.values((await fdb.ref('employees').once('value')).val() || {}).filter(e => e && !e.deleted).forEach(e => byId.set(e.id, { ...byId.get(e.id), ...e })); }catch(e){}   /* + Firebase copy */
+  try{ Object.values((await fdb.ref('employees').once('value')).val() || {}).forEach(e => byId.set(e.id, { ...byId.get(e.id), ...e })); }catch(e){}   /* + Firebase copy */
   const toData = u => fetch(u).then(r => r.blob()).then(b => new Promise(ok => { const f = new FileReader(); f.onload = () => ok(f.result); f.readAsDataURL(b); })).catch(() => u);
   const cleanEmployees = await Promise.all([...byId.values()].map(async ({ photoUrl, ...e }) => (e.photo && !/^data:/.test(e.photo)) ? { ...e, photo: await toData(e.photo) } : e));
   if(!cleanEmployees.length){ toast('No employee records to export', 'err'); return; }
@@ -1368,7 +1373,6 @@ document.getElementById('importJsonInput').addEventListener('change', (e)=>{
       });
       renderEmployees();
       renderDashboard();
-      employees.forEach(e => reviveIds.add(fbKey(e.id)));
       saveEmployees().then(ok => { if(ok) toast(`Imported to Firebase: ${addedCount} added, ${updatedCount} updated`, 'ok'); });
     }catch(err){
       toast('Failed to parse JSON file', 'err');
@@ -1586,7 +1590,6 @@ document.getElementById('empSaveBtn').addEventListener('click', ()=>{
   if(!id || !name){ toast('ID & Name required.', 'err'); return; }
   if(pin && !/^\d{4}$/.test(pin)){ toast('PIN must be exactly 4 digits (numbers only)', 'err'); return; }
 
-  if(!empReady){ toast('Employees still loading - wait a moment and retry', 'err'); return; }
   const record = { id, name, dept, pin, fpTag, fpEnrolled: fpTag ? capturedFpEnrolled : false, fpCredentialId: fpTag ? fpCredentialId : null, descriptor: capturedDescriptor, photo: capturedPhoto };
   if(editingId){
     const idx = employees.findIndex(e=>e.id===editingId);
@@ -1595,7 +1598,6 @@ document.getElementById('empSaveBtn').addEventListener('click', ()=>{
     if(employees.some(e=>e.id===id)){ toast('ID already exists.', 'err'); return; }
     employees.push(record);
   }
-  reviveIds.add(fbKey(id));
   saveEmployees(); closeEmpModal(); renderEmployees(); renderDashboard();
   toast('Employee Saved', 'ok');
 });
@@ -2440,7 +2442,7 @@ renderDashboard();
         if (key !== noticeKey) { noticeKey = key; showFingerNotice(h); }
       } else { noticeKey = ""; closeFingerNotice(); }
       /* server lost its embeddings (restart / ephemeral disk) or never had them -> rebuild from stored photos */
-      if (backend.ok && (h.enrolled !== employees.filter(e => e.photo && !syncFailed.has(e.id)).length)) syncMissing();
+      if (backend.ok && h.enrolled < employees.filter(e => e.photo && !syncFailed.has(e.id)).length) syncMissing();
     } catch (e) { backend.ok = false; }
   }
 
@@ -2471,10 +2473,6 @@ renderDashboard();
     const el = statusEl();
     try {
       const have = new Set((await api('/api/enrolled')).ids);
-      if (empReady && employees.length) {                       /* server faces with no employee record -> delete */
-        const live = new Set(employees.map(e => e.id));
-        for (const id of [...have]) if (!live.has(id)) { have.delete(id); await api('/api/enroll/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => {}); }
-      }
       const todo = employees.filter(e => e.photo && !have.has(e.id) && !syncFailed.has(e.id));
       let ok = 0; const why = [];
       for (let i = 0; i < todo.length; i++) {
@@ -2654,14 +2652,6 @@ renderDashboard();
         guide.classList.toggle('active', !!res.box);
         draw(res.box, '#38bdf8');
         hud(res); fast = res.stage === 'finger';      /* smaller frames while tracking fingers */
-        if ((res.face_verified || res.state === 'passed') && res.employee_id && empReady && employees.length
-            && !employees.some(e => e.id === res.employee_id)) {        /* face belongs to an employee deleted earlier -> purge it */
-          if (window.faceBackendDelete) window.faceBackendDelete(res.employee_id);
-          toast('Old face record "' + res.employee_id + '" removed - scan again', 'err');
-          setScanStatus('Old face record removed - scan again', 'fail');
-          isVerifyingLiveness = false; clearFingers(); hideHud(); draw(null);
-          scanGapMs = 800; isProcessingFrame = false; return;
-        }
         if (res.face_verified && !announced) {        /* Step 1/2 complete -> employee name + "Face Verification Complete" */
           announced = true;
           const who = employees.find(e => e.id === res.employee_id);

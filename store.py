@@ -45,7 +45,7 @@ class Firebase:
     @staticmethod
     def key(raw: str) -> str:
         """RTDB keys may not contain . $ # [ ] /  -> percent-encode them."""
-        return urllib.parse.quote(str(raw), safe="").replace(".", "%2E")
+        return urllib.parse.quote(str(raw), safe="!~*'()").replace(".", "%2E")   # same as JS encodeURIComponent + "."
 
     def _call(self, method, url, data=None, ctype="application/json", timeout=8):
         req = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": ctype})
@@ -160,8 +160,19 @@ class FirebaseBackend:
                 self.fb.touch_meta(len(local))
                 return local
             remote = self.fb.get("face_profiles") or {}
+            tomb = self.fb.get("deleted_employees", shallow=True) or {}
+            gone = [k for k in remote if k in tomb]            # deleted employees: purge any leftover face data
+            for k in gone:
+                try:
+                    self.fb.delete("face_profiles/" + k)
+                    self.fb.delete_image("face_images/%s/profile.jpg" % k)
+                except Exception:  # noqa: BLE001
+                    pass
+                remote.pop(k)
             vecs = {p["emp_id"]: _dec(p["vec"]) for p in remote.values() if p.get("vec") and p.get("emp_id")}
             self.local.save_all(vecs)                      # refresh offline cache
+            if gone:
+                self.fb.touch_meta(len(vecs))
             return vecs
         except Exception as e:  # noqa: BLE001
             print("[store] Firebase load failed, using local cache:", e)
@@ -174,6 +185,7 @@ class FirebaseBackend:
     def put(self, emp_id, vec, vecs):
         self.local.put(emp_id, vec, vecs)
         try:
+            self.fb.delete("deleted_employees/" + Firebase.key(emp_id))   # (re-)enrolling lifts the delete marker
             self._push(emp_id, vec)
             self.fb.touch_meta(len(vecs))
         except Exception as e:  # noqa: BLE001
@@ -181,25 +193,12 @@ class FirebaseBackend:
 
     def delete(self, emp_id, vecs):
         self.local.delete(emp_id, vecs)
-        key = Firebase.key(emp_id)
         try:
-            self.fb.delete("face_profiles/" + key)
-        except Exception as e:  # noqa: BLE001
-            print("[store] Firebase profile delete failed:", e)
-        try:                      # legacy / differently keyed nodes that still carry this emp_id
-            for k, p in (self.fb.get("face_profiles") or {}).items():
-                if k != key and isinstance(p, dict) and p.get("emp_id") == emp_id:
-                    self.fb.delete("face_profiles/" + k)
-        except Exception as e:  # noqa: BLE001
-            print("[store] Firebase stray-profile delete failed:", e)
-        try:
-            self.fb.delete_image("face_images/%s/profile.jpg" % emp_id)
-        except Exception as e:  # noqa: BLE001
-            print("[store] Firebase image delete failed:", e)
-        try:
+            self.fb.delete("face_profiles/" + Firebase.key(emp_id))
+            self.fb.delete_image("face_images/%s/profile.jpg" % Firebase.key(emp_id))
             self.fb.touch_meta(len(vecs))
         except Exception as e:  # noqa: BLE001
-            print("[store] Firebase meta update failed:", e)
+            print("[store] Firebase delete failed (removed locally):", e)
 
     def keep_only(self, keep, vecs):
         self.local.keep_only(keep, vecs)
@@ -289,8 +288,6 @@ class Store:
         self._be = _make_backend()
         self.backend = self._be.name
         self._next_check = 0.0
-        self._put_at: dict[str, float] = {}      # recently enrolled ids (employee record may not be saved yet)
-        self._purge_next = 0.0
         self._sig = None
         self._vecs: dict[str, np.ndarray] = {}
         self._snap = ([], np.zeros((0, 128), np.float32))   # (ids, matrix) replaced atomically
@@ -321,7 +318,6 @@ class Store:
                 print("[store] refresh failed:", e)
 
     def put(self, emp_id: str, vec: np.ndarray):
-        self._put_at[emp_id] = time.time()
         with self._lock:
             self._be.put(emp_id, vec, {**self._vecs, emp_id: vec.astype(np.float32)})   # persist first
             self._vecs[emp_id] = vec.astype(np.float32)
@@ -329,15 +325,18 @@ class Store:
             self._rebuild()
 
     def delete(self, emp_id: str) -> bool:
+        """Full purge: memory + local cache + Postgres/Firebase face profile, face image, employee record; leaves a delete marker."""
         with self._lock:
-            if emp_id not in self._vecs:
-                return False
             rest = {k: v for k, v in self._vecs.items() if k != emp_id}
             self._be.delete(emp_id, rest)
             self._vecs = rest
             self._sig = self._be.signature()
             self._rebuild()
-            return True
+        if fb.enabled:
+            key = Firebase.key(emp_id)
+            self._sync(lambda: (fb.put("deleted_employees/" + key, {".sv": "timestamp"}), fb.delete("employees/" + key),
+                                fb.delete_image("face_images/%s/profile.jpg" % key)), "employee purge")
+        return True
 
     def keep_only(self, keep: list[str]) -> int:
         with self._lock:
@@ -350,49 +349,6 @@ class Store:
                 self._sig = self._be.signature()
                 self._rebuild()
             return dropped
-
-    ORPHAN_GRACE_S = 30 * 60
-
-    def live_employee_ids(self):
-        """Ids of employees that exist in Firebase (not soft-deleted). None if unknown -> never purge on doubt."""
-        if not fb.enabled:
-            return None
-        try:
-            emps = fb.get("employees")
-        except Exception as e:  # noqa: BLE001
-            print("[store] employee list unavailable:", e)
-            return None
-        if not isinstance(emps, dict) or not emps:
-            return None
-        live = set()
-        for k, e in emps.items():
-            if isinstance(e, dict) and not e.get("deleted"):
-                live.add(str(e.get("id") or urllib.parse.unquote(k)))
-        return live or None
-
-    def is_orphan(self, emp_id: str, live=None) -> bool:
-        live = live if live is not None else self.live_employee_ids()
-        if not live or emp_id in live:
-            return False
-        return time.time() - self._put_at.get(emp_id, 0.0) > self.ORPHAN_GRACE_S
-
-    def purge_orphans(self, force: bool = False) -> int:
-        """Delete face embeddings whose employee no longer exists (deleted employees must never be recognised)."""
-        if not force and time.time() < self._purge_next:
-            return 0
-        self._purge_next = time.time() + 20
-        live = self.live_employee_ids()
-        if not live:
-            return 0
-        n = 0
-        for emp_id in [i for i in list(self._vecs) if self.is_orphan(i, live)]:
-            try:
-                if self.delete(emp_id):
-                    n += 1
-                    print("[store] purged orphan face:", emp_id)
-            except Exception as e:  # noqa: BLE001
-                print("[store] orphan purge failed:", emp_id, e)
-        return n
 
     def ids(self) -> list[str]:
         self._maybe_refresh()
@@ -434,7 +390,7 @@ class Store:
 
     def save_face_image(self, emp_id: str, jpeg: bytes) -> str | None:
         """Face image -> Firebase Storage; path is recorded on the face profile. Returns the storage path."""
-        path = "face_images/%s/profile.jpg" % emp_id
+        path = "face_images/%s/profile.jpg" % Firebase.key(emp_id)
         ok = self._sync(lambda: (fb.upload_image(path, jpeg),
                                  fb.patch("face_profiles/" + Firebase.key(emp_id), {"image_path": path})), "image upload")
         return path if ok else None
