@@ -998,34 +998,41 @@ function rerender(){
   if(currentPage === 'employees') renderEmployees();
   if(currentPage === 'reports') renderReports();
 }
-async function saveEmployees(){
-  try{
-    const next = new Map(employees.map(e => [fbKey(e.id), e]));
-    for(const k of Object.keys(remoteEmp)){
-      if(next.has(k)) continue;
-      await fdb.ref('deleted_employees/' + k).set(firebase.database.ServerValue.TIMESTAMP);
-      await fdb.ref('employees/' + k).remove();
-      fst.ref('face_images/' + k + '/profile.jpg').delete().catch(()=>{});
-      fdb.ref('face_profiles/' + k).remove().then(() => fdb.ref('face_profiles').once('value'))
-        .then(s => fdb.ref('face_meta').set({ count: s.numChildren(), updated_at: firebase.database.ServerValue.TIMESTAMP })).catch(()=>{});
-      purgeLocal([k]);
-      if(window.faceBackendDelete) window.faceBackendDelete(remoteEmp[k].id);
+/* ---- Employee writes are ALWAYS per record. Nothing is ever deleted because it is "missing" from an array. ---- */
+const safeId = id => { const s = String(id == null ? '' : id).trim(); if(!s) throw new Error('Employee ID is empty'); return s; };
+function safeRef(path){                           /* refuses collection-level paths, so one bad id can never wipe everything */
+  const p = path.split('/');
+  if(p.length < 2 || p.some(x => !x)) throw new Error('Refusing collection-level access: ' + path);
+  return fdb.ref(p.join('/'));
+}
+async function fbPutEmployee(e){                  /* add / edit / import: upsert exactly this employee */
+  const id = safeId(e.id), k = fbKey(id), old = remoteEmp[k] || {};
+  e.id = id;
+  const ref = fst.ref('face_images/' + k + '/profile.jpg');
+  if(/^data:/.test(e.photo || '')){                       /* photo stays in the record (for export/import) + copy in Storage */
+    if(e.photo !== old.photo || !e.photoUrl){
+      try{ await ref.putString(e.photo, 'data_url'); e.photoUrl = await ref.getDownloadURL(); }
+      catch(pe){ toast('Photo copy to Storage failed (kept in record)', 'err'); }
     }
-    for(const [k, e] of next){
-      const old = remoteEmp[k] || {};
-      const ref = fst.ref('face_images/' + k + '/profile.jpg');
-      if(/^data:/.test(e.photo || '')){                       /* photo stays in the record (for export/import) + copy in Storage */
-        if(e.photo !== old.photo || !e.photoUrl){
-          try{ await ref.putString(e.photo, 'data_url'); e.photoUrl = await ref.getDownloadURL(); }
-          catch(pe){ toast('Photo copy to Storage failed (kept in record)', 'err'); }
-        }
-      } else if(!e.photo && old.photoUrl){ ref.delete().catch(()=>{}); delete e.photoUrl; }
-      const rec = clean(e);
-      if(!remoteEmp[k]) await fdb.ref('deleted_employees/' + k).remove();      /* re-adding an ID lifts its tombstone */
-      if(!remoteEmp[k] || sj(rec) !== sj(remoteEmp[k])) await fdb.ref('employees/' + k).set(rec);
-    }
-    return true;
-  }catch(err){ toast('Firebase sync failed: ' + err.message, 'err'); return false; }
+  } else if(!e.photo && old.photoUrl){ ref.delete().catch(()=>{}); delete e.photoUrl; }
+  await safeRef('deleted_employees/' + k).remove();       /* (re-)adding an ID lifts its delete marker */
+  await safeRef('employees/' + k).set(clean(e));
+}
+async function fbDeleteEmployee(rawId){           /* removes ONLY this employee (+ their face data / photo) */
+  const id = safeId(rawId), k = fbKey(id);
+  const rec = remoteEmp[k];
+  if(rec) await safeRef('employees_trash/' + k).set({ ...clean(rec), deletedAt: firebase.database.ServerValue.TIMESTAMP });   /* recoverable copy */
+  await safeRef('deleted_employees/' + k).set(firebase.database.ServerValue.TIMESTAMP);
+  await safeRef('employees/' + k).remove();
+  fst.ref('face_images/' + k + '/profile.jpg').delete().catch(()=>{});
+  safeRef('face_profiles/' + k).remove().then(() => fdb.ref('face_profiles').once('value'))
+    .then(s => fdb.ref('face_meta').set({ count: s.numChildren(), updated_at: firebase.database.ServerValue.TIMESTAMP })).catch(()=>{});
+  purgeLocal([k]);
+  if(window.faceBackendDelete) window.faceBackendDelete(id);
+}
+async function saveEmployees(list){               /* upsert only the given records */
+  try{ for(const e of (list || [])) await fbPutEmployee(e); return true; }
+  catch(err){ toast('Firebase sync failed: ' + err.message, 'err'); return false; }
 }
 function saveLogs(entry){
   if(!entry) return;
@@ -1039,12 +1046,15 @@ function putLogs(byDate, dates){
   });
   logs = [...logCache.values()];
 }
+let empSeq = 0;
 fdb.ref('employees').on('value', async snap => {
+  const seq = ++empSeq;
   remoteEmp = snap.val() || {};
   let tomb = {};
   try{ tomb = (await fdb.ref('deleted_employees').once('value')).val() || {}; }catch(e){}
+  if(seq !== empSeq) return;                       /* a newer snapshot arrived while waiting */
   Object.keys(remoteEmp).forEach(k => {            /* deleted employees can never come back (self-heals stale re-adds) */
-    if(tomb[k]){ fdb.ref('employees/' + k).remove().catch(()=>{}); delete remoteEmp[k]; }
+    if(k && tomb[k]){ safeRef('employees/' + k).remove().catch(()=>{}); delete remoteEmp[k]; }
   });
   tombKeys = Object.keys(tomb);
   if(tombKeys.length){ purgeLocal(tombKeys); purgeBackend(); }
@@ -1058,18 +1068,14 @@ fdb.ref('employees').on('value', async snap => {
     }
   }
   rerender();
-}, err => {                        /* read denied / offline: show the browser's saved copy instead of an empty list */
-  try{ employees = JSON.parse(localStorage.getItem(LS_EMP) || '[]'); }catch(e){}
-  toast('Firebase read failed: ' + err.message + ' - check Database rules', 'err');
-  rerender();
-});
+}, err => toast('Firebase read failed: ' + err.message + ' - check Database rules', 'err'));   /* keep last good state; never rebuild from a stale copy */
 async function migrateLocal(tomb){           /* one-time upload of data previously kept in this browser */
   if(localStorage.getItem('fb_migrated2')) return;
   try{
     const le = JSON.parse(localStorage.getItem(LS_EMP) || '[]').filter(e => !(tomb || {})[fbKey(e.id)]);
     const ll = JSON.parse(localStorage.getItem(LS_LOG) || '[]');
     let ok = true;
-    if(le.length && !Object.keys(remoteEmp).length){ employees = le; ok = await saveEmployees(); }
+    if(le.length && !Object.keys(remoteEmp).length){ ok = await saveEmployees(le); }
     if(ok){
       await Promise.all(ll.filter(l => l.date).map(l => { l.id = l.id || ('m' + (l.lastUpdated || 0).toString(36) + fbKey(l.empId));
         return fdb.ref('attendance_logs/' + l.date + '/' + l.id).set(clean(l)); }));
@@ -1087,6 +1093,7 @@ function watchToday(){
   todayRef.on('value', s => { putLogs({ [d]: s.val() || {} }); rerender(); });
 }
 watchToday(); setInterval(watchToday, 60000);
+setInterval(() => { if(currentPage === 'reports' && activeFilter !== 'today') refreshReports(); }, 20000);
 async function fetchRange(){
   const t = todayStr(); let a, b;
   if(activeFilter === 'today') a = b = t;
@@ -1308,18 +1315,20 @@ function renderEmployees(){
       <div class="eid">${escapeHtml(e.id)} · ${escapeHtml(e.dept||'—')}</div>
       <span class="face-tag ${e.descriptor?'yes':'no'}">${e.descriptor?'Enrolled':'No Face Data'}</span>
       <div class="emp-actions">
-        <button data-edit="${e.id}">Edit</button>
-        <button class="del" data-del="${e.id}">Delete</button>
+        <button data-edit="${escapeHtml(e.id)}">Edit</button>
+        <button class="del" data-del="${escapeHtml(e.id)}">Delete</button>
       </div>
     </div>
   `).join('') : `<div class="empty">No employees found.</div>`;
 
   grid.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', async ()=>{
-    const de = employees.find(e=>e.id === b.dataset.del);
-    if(await askConfirm('Delete employee?', (de ? de.name : 'This employee') + ' will be removed from all devices (profile, photo and face data).', 'Delete')){
-      employees = employees.filter(e=>e.id !== b.dataset.del);
+    const id = b.dataset.del, de = employees.find(e=>e.id === id);
+    if(!id || !de) return;
+    if(await askConfirm('Delete employee?', de.name + ' will be removed from all devices (profile, photo and face data). Other employees are not touched.', 'Delete')){
+      employees = employees.filter(e=>e.id !== id);                 /* exactly this id */
       renderEmployees(); renderDashboard();
-      saveEmployees().then(ok => toast(ok ? 'Employee deleted' : 'Delete NOT saved to Firebase - check rules/internet', ok ? 'ok' : 'err'));
+      fbDeleteEmployee(id).then(() => toast('Employee deleted', 'ok'))
+        .catch(err => toast('Delete NOT saved: ' + err.message, 'err'));
     }
   }));
   grid.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click', ()=> openEmpModal(b.dataset.edit)));
@@ -1358,22 +1367,18 @@ document.getElementById('importJsonInput').addEventListener('change', (e)=>{
         toast('Invalid JSON format', 'err');
         return;
       }
-      let addedCount = 0;
-      let updatedCount = 0;
+      let addedCount = 0, updatedCount = 0, skipped = 0;
+      const seen = new Set(), batch = [];
       imported.forEach(imp=>{
-        if(!imp.id || !imp.name) return;
-        const idx = employees.findIndex(e=>e.id === imp.id);
-        if(idx !== -1){
-          employees[idx] = { ...employees[idx], ...imp };
-          updatedCount++;
-        } else {
-          employees.push(imp);
-          addedCount++;
-        }
+        const id = imp && typeof imp.id === 'string' ? imp.id.trim() : '';
+        if(!id || !imp.name || seen.has(id)){ skipped++; return; }
+        seen.add(id);
+        const cur = employees.find(e=>e.id === id);
+        if(cur) updatedCount++; else addedCount++;
+        batch.push(cur ? { ...cur, ...imp, id } : { ...imp, id });
       });
-      renderEmployees();
-      renderDashboard();
-      saveEmployees().then(ok => { if(ok) toast(`Imported to Firebase: ${addedCount} added, ${updatedCount} updated`, 'ok'); });
+      if(!batch.length){ toast('No valid employee records in file', 'err'); e.target.value = ''; return; }
+      saveEmployees(batch).then(ok => { if(ok) toast(`Imported to Firebase: ${addedCount} added, ${updatedCount} updated${skipped ? ', ' + skipped + ' skipped' : ''}`, 'ok'); });
     }catch(err){
       toast('Failed to parse JSON file', 'err');
     }
@@ -1591,15 +1596,19 @@ document.getElementById('empSaveBtn').addEventListener('click', ()=>{
   if(pin && !/^\d{4}$/.test(pin)){ toast('PIN must be exactly 4 digits (numbers only)', 'err'); return; }
 
   const record = { id, name, dept, pin, fpTag, fpEnrolled: fpTag ? capturedFpEnrolled : false, fpCredentialId: fpTag ? fpCredentialId : null, descriptor: capturedDescriptor, photo: capturedPhoto };
+  let merged = record;
   if(editingId){
-    const idx = employees.findIndex(e=>e.id===editingId);
-    employees[idx] = {...employees[idx], ...record};
+    if(id !== editingId){ toast('Employee ID cannot be changed - add a new employee instead', 'err'); return; }
+    const cur = employees.find(e=>e.id===editingId);
+    merged = cur ? {...cur, ...record} : record;
+    const i = employees.findIndex(e=>e.id===editingId);
+    if(i >= 0) employees[i] = merged; else employees.push(merged);
   } else {
     if(employees.some(e=>e.id===id)){ toast('ID already exists.', 'err'); return; }
-    employees.push(record);
+    employees.push(merged);
   }
-  saveEmployees(); closeEmpModal(); renderEmployees(); renderDashboard();
-  toast('Employee Saved', 'ok');
+  closeEmpModal(); renderEmployees(); renderDashboard();
+  saveEmployees([merged]).then(ok => toast(ok ? 'Employee Saved' : 'Save NOT synced to Firebase', ok ? 'ok' : 'err'));
 });
 
 /* LIVE SCANNER & LIVENESS */

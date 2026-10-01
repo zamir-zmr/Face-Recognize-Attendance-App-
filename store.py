@@ -45,7 +45,10 @@ class Firebase:
     @staticmethod
     def key(raw: str) -> str:
         """RTDB keys may not contain . $ # [ ] /  -> percent-encode them."""
-        return urllib.parse.quote(str(raw), safe="!~*'()").replace(".", "%2E")   # same as JS encodeURIComponent + "."
+        raw = str(raw if raw is not None else "").strip()
+        if not raw:
+            raise ValueError("empty id")                  # an empty key would address the WHOLE collection
+        return urllib.parse.quote(raw, safe="!~*'()").replace(".", "%2E")   # same as JS encodeURIComponent + "."
 
     def _call(self, method, url, data=None, ctype="application/json", timeout=8):
         req = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": ctype})
@@ -54,6 +57,11 @@ class Firebase:
         return json.loads(raw) if raw else None
 
     def _db(self, method, path, body=None, **q):
+        segs = path.strip("/").split("/")
+        if not path.strip("/") or any(not x for x in segs):
+            raise ValueError("bad database path: %r" % path)
+        if method in ("PUT", "PATCH", "DELETE") and len(segs) < 2 and segs[0] != "face_meta":
+            raise ValueError("refusing whole-collection %s on %r" % (method, path))   # one bad id must never wipe a collection
         if self.auth:
             q["auth"] = self.auth
         if q.get("shallow"):
@@ -202,6 +210,8 @@ class FirebaseBackend:
 
     def keep_only(self, keep, vecs):
         self.local.keep_only(keep, vecs)
+        if not vecs:
+            return                                          # never prune against an empty list
         try:
             keep_keys = {Firebase.key(i) for i in vecs}
             for k in (self.fb.get("face_profiles", shallow=True) or {}):
@@ -325,6 +335,9 @@ class Store:
             self._rebuild()
 
     def delete(self, emp_id: str) -> bool:
+        emp_id = (emp_id or "").strip()
+        if not emp_id:
+            raise ValueError("employee id required")
         """Full purge: memory + local cache + Postgres/Firebase face profile, face image, employee record; leaves a delete marker."""
         with self._lock:
             rest = {k: v for k, v in self._vecs.items() if k != emp_id}
@@ -343,6 +356,8 @@ class Store:
             keep_set = set(keep)
             rest = {k: v for k, v in self._vecs.items() if k in keep_set}
             dropped = len(self._vecs) - len(rest)
+            if dropped > max(1, len(self._vecs) // 2):
+                raise ValueError("refusing to prune %d of %d profiles" % (dropped, len(self._vecs)))
             if dropped:
                 self._be.keep_only(keep, rest)
                 self._vecs = rest

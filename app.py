@@ -49,6 +49,13 @@ async def private_network(request: Request, call_next):   # Chrome Private Netwo
     return resp
 
 
+def valid_id(raw: str) -> str:
+    emp = (raw or "").strip()
+    if not emp or len(emp) > 128:
+        raise HTTPException(400, "valid employee id required")
+    return emp
+
+
 def auth(x_api_key: str = Header(default="")):
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(401, "Invalid API key")
@@ -158,14 +165,17 @@ def enroll(body: EnrollBody):
 
 @app.delete("/api/enroll/{employee_id}", dependencies=[Depends(auth)])
 def unenroll(employee_id: str):
-    return {"ok": store.delete(employee_id)}
+    return {"ok": store.delete(valid_id(employee_id))}
 
 
 @app.post("/api/prune", dependencies=[Depends(auth)])
 def prune(body: PruneBody):
     if not body.keep:
         return {"removed": 0}
-    return {"removed": store.keep_only(body.keep)}
+    try:
+        return {"removed": store.keep_only(body.keep)}
+    except ValueError as e:                         # safety guard: pruning most profiles at once is refused
+        raise HTTPException(409, str(e))
 
 
 @app.post("/api/verify/start", dependencies=[Depends(auth)])
@@ -194,12 +204,15 @@ def employees_list():
 
 @app.put("/api/employees/{employee_id}", dependencies=[Depends(auth)])
 def employee_put(employee_id: str, body: dict):
+    employee_id = valid_id(employee_id)
+    if str(body.get("id", employee_id)).strip() != employee_id:
+        raise HTTPException(400, "id in body does not match url")
     return {"ok": store.upsert_employee(employee_id, body)}
 
 
 @app.delete("/api/employees/{employee_id}", dependencies=[Depends(auth)])
 def employee_delete(employee_id: str):
-    return {"ok": store.delete(employee_id)}        # employee record + face data + image + local cache, everywhere
+    return {"ok": store.delete(valid_id(employee_id))}        # employee record + face data + image + local cache, everywhere
 
 
 @app.get("/api/logs", dependencies=[Depends(auth)])
