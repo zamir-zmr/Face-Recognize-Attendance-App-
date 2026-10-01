@@ -979,10 +979,11 @@ function askConfirm(title, msg, okText){
   });
 }
 let remoteEmp = {}, empReady = false;
+const CACHE_KEY = 'fb_cache_emp_v1';                /* read-only copy of the last Firebase snapshot (never used for writes) */
 const purgedBackend = new Set(), importingKeys = new Set(); let tombKeys = [];
 function purgeLocal(keys){                        /* remove deleted employees from every browser-side copy */
   const ks = new Set(keys);
-  [LS_EMP, LS_EMP + '_bak'].forEach(n => { try{
+  [LS_EMP, LS_EMP + '_bak', CACHE_KEY].forEach(n => { try{
     const arr = JSON.parse(localStorage.getItem(n) || 'null'); if(!Array.isArray(arr)) return;
     localStorage.setItem(n, JSON.stringify(arr.filter(e => !ks.has(fbKey(e.id)))));
   }catch(e){} });
@@ -1005,18 +1006,23 @@ function safeRef(path){                           /* refuses collection-level pa
   if(p.length < 2 || p.some(x => !x)) throw new Error('Refusing collection-level access: ' + path);
   return fdb.ref(p.join('/'));
 }
-async function fbPutEmployee(e){                  /* add / edit / import: upsert exactly this employee */
+const TS = () => firebase.database.ServerValue.TIMESTAMP;
+async function fbPutEmployee(e){                  /* add / edit / import: upsert exactly this employee; the record is saved FIRST */
   const id = safeId(e.id), k = fbKey(id), old = remoteEmp[k] || {};
   e.id = id;
-  const ref = fst.ref('face_images/' + k + '/profile.jpg');
-  if(/^data:/.test(e.photo || '')){                       /* photo stays in the record (for export/import) + copy in Storage */
-    if(e.photo !== old.photo || !e.photoUrl){
-      try{ await ref.putString(e.photo, 'data_url'); e.photoUrl = await ref.getDownloadURL(); }
-      catch(pe){ toast('Photo copy to Storage failed (kept in record)', 'err'); }
-    }
-  } else if(!e.photo && old.photoUrl){ ref.delete().catch(()=>{}); delete e.photoUrl; }
+  const newPhoto = /^data:/.test(e.photo || '') && (e.photo !== old.photo || !e.photoUrl);
   await safeRef('deleted_employees/' + k).remove();       /* (re-)adding an ID lifts its delete marker */
-  await safeRef('employees/' + k).set(clean(e));
+  await safeRef('employees/' + k).set({ ...clean(e), updatedAt: TS() });
+  const ref = fst.ref('face_images/' + k + '/profile.jpg');
+  if(newPhoto){                                           /* Storage copy: background, time-boxed, can never lose the record */
+    (async () => {
+      try{
+        await Promise.race([ref.putString(e.photo, 'data_url'), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000))]);
+        const url = await ref.getDownloadURL();
+        await fdb.ref('employees/' + k).transaction(cur => cur ? { ...cur, photoUrl: url } : cur);   /* no-op if deleted meanwhile */
+      }catch(pe){ console.warn('Storage copy failed', id, pe.message); }
+    })();
+  } else if(!e.photo && old.photoUrl){ ref.delete().catch(()=>{}); }
 }
 async function fbDeleteEmployee(rawId){           /* removes ONLY this employee (+ their face data / photo) */
   const id = safeId(rawId), k = fbKey(id);
@@ -1053,7 +1059,15 @@ function putLogs(byDate, dates){
   });
   logs = [...logCache.values()];
 }
-let empSeq = 0;
+let empSeq = 0, wasOnline = null;
+setTimeout(() => {                                /* Firebase unreachable at startup: show the last synced data (read-only) instead of an empty list */
+  if(empReady) return;
+  try{ const c = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]'); if(c.length){ employees = c; rerender(); toast('Offline - showing last synced data', 'err'); } }catch(e){}
+}, 6000);
+fdb.ref('.info/connected').on('value', s => {
+  if(s.val() === true){ if(wasOnline === false) toast('Back online - all devices in sync', 'ok'); wasOnline = true; }
+  else if(wasOnline === true){ toast('Offline - changes sync when back online', 'err'); wasOnline = false; }
+});
 fdb.ref('employees').on('value', async snap => {
   const seq = ++empSeq;
   remoteEmp = snap.val() || {};
@@ -1061,11 +1075,14 @@ fdb.ref('employees').on('value', async snap => {
   try{ tomb = (await fdb.ref('deleted_employees').once('value')).val() || {}; }catch(e){}
   if(seq !== empSeq) return;                       /* a newer snapshot arrived while waiting */
   Object.keys(remoteEmp).forEach(k => {            /* deleted employees can never come back (self-heals stale re-adds) */
-    if(k && tomb[k]){ safeRef('employees/' + k).remove().catch(()=>{}); delete remoteEmp[k]; }
+    if(k && tomb[k] && !(((remoteEmp[k] || {}).updatedAt || 0) > Number(tomb[k]))){   /* only records NOT re-saved after the delete */
+      safeRef('employees/' + k).remove().catch(()=>{}); delete remoteEmp[k];
+    }
   });
   tombKeys = Object.keys(tomb);
   if(tombKeys.length){ purgeLocal(tombKeys); purgeBackend(); }
   employees = Object.values(remoteEmp).map(e => ({ ...e }));
+  try{ localStorage.setItem(CACHE_KEY, JSON.stringify(employees)); }catch(e){}
   if(!empReady){
     empReady = true;
     await migrateLocal(tomb);

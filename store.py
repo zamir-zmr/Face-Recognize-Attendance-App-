@@ -445,7 +445,7 @@ class Store:
         key = Firebase.key(emp_id)
         def go():
             fb.delete("deleted_employees/" + key)            # (re-)adding an id lifts its delete marker
-            fb.patch("employees/" + key, {**data, "id": emp_id})
+            fb.patch("employees/" + key, {**data, "id": emp_id, "updatedAt": {".sv": "timestamp"}})
         return self._sync(go, "employee sync")
 
     def delete_employee(self, emp_id: str) -> bool:
