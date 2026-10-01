@@ -2437,7 +2437,7 @@ renderDashboard();
   /* ---------- finger-challenge health notice ---------- */
   let handsIssue = null, noticeKey = "";
   function paintBadge(el) {
-    el.textContent = "Face Engine ✓" + (handsIssue ? " · Finger challenge OFF ⚠" : "");
+    el.textContent = "Python Face Engine ✓" + (handsIssue ? " · Finger challenge OFF ⚠" : "");
     el.style.color = handsIssue ? "#f59e0b" : "var(--ok)";
     el.style.cursor = handsIssue ? "pointer" : "";
   }
