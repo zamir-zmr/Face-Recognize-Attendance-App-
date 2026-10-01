@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Ash Face Attendance </title>
+<title>MinMoe — Face Attendance Terminal</title>
 <style>
 :root {
   --bg: #030712;
@@ -745,7 +745,7 @@ body.white-mode .scan-status.fail { color: #be123c !important; }
 
     <!-- LIVE SCANNER -->
     <section class="page active" id="page-scanner">
-      <div class="page-header"><div><h2 class="page-title">Ash Live Scanner</h2><p class="page-sub">Automatic face recognition, PIN code, or device fingerprint sensor verification.</p></div></div>
+      <div class="page-header"><div><h2 class="page-title">Live Scanner Terminal</h2><p class="page-sub">Automatic face recognition, PIN code, or device fingerprint sensor verification.</p></div></div>
       <div class="scan-wrap">
         <div class="cam-box" id="camBox">
           <!-- SCREEN FLASHLIGHT OVERLAY INSIDE CAM-BOX -->
@@ -1546,9 +1546,12 @@ document.getElementById('captureFaceBtn').addEventListener('click', async ()=>{
 });
 
 function snapshotToDataUrl(video){
-  const c = document.createElement('canvas'); c.width = 160; c.height = 160;
-  c.getContext('2d').drawImage(video, 0, 0, 160, 160);
-  return c.toDataURL('image/jpeg', 0.8);
+  /* centre-crop to a square (no squashing) so the stored profile photo keeps real face proportions */
+  const vw = video.videoWidth || video.naturalWidth || 256, vh = video.videoHeight || video.naturalHeight || 256;
+  const sz = Math.min(vw, vh), sx = (vw - sz) / 2, sy = (vh - sz) / 2;
+  const c = document.createElement('canvas'); c.width = 256; c.height = 256;
+  c.getContext('2d').drawImage(video, sx, sy, sz, sz, 0, 0, 256, 256);
+  return c.toDataURL('image/jpeg', 0.85);
 }
 
 /* WebAuthn helpers */
@@ -2437,7 +2440,7 @@ renderDashboard();
   /* ---------- finger-challenge health notice ---------- */
   let handsIssue = null, noticeKey = "";
   function paintBadge(el) {
-    el.textContent = "Face Engine ✓" + (handsIssue ? " · Finger challenge OFF ⚠" : "");
+    el.textContent = "Python Face Engine ✓" + (handsIssue ? " · Finger challenge OFF ⚠" : "");
     el.style.color = handsIssue ? "#f59e0b" : "var(--ok)";
     el.style.cursor = handsIssue ? "pointer" : "";
   }
@@ -2507,7 +2510,7 @@ renderDashboard();
   }
 
   async function syncMissing() {
-    if (!backend.ok || syncing) return;
+    if (!backend.ok || syncing || window.__enrolling) return;   /* never compete with a live enrollment for the server CPU */
     syncing = true;
     const el = statusEl();
     try {
@@ -2518,7 +2521,7 @@ renderDashboard();
         if (el) { el.textContent = 'Syncing faces ' + (i + 1) + '/' + todo.length + '…'; el.style.color = ''; }
         try {
           const images = await photoToFrames(todo[i].photo);
-          await api('/api/enroll', { method: 'POST', body: JSON.stringify({ employee_id: todo[i].id, images, force: true, relaxed: true }) }, 20000);
+          await api('/api/enroll', { method: 'POST', body: JSON.stringify({ employee_id: todo[i].id, images, force: true, relaxed: true }) }, 60000);
           ok++;
         } catch (err) { syncFailed.add(todo[i].id); why.push((todo[i].name || todo[i].id) + ': ' + (err.name === 'AbortError' ? 'server timeout' : err.message)); console.warn('face sync failed', todo[i].id, err.message); }
       }
@@ -2752,20 +2755,21 @@ renderDashboard();
     const video = document.getElementById('regVideo'), preview = document.getElementById('galleryPreview');
     const fromGallery = currentEnrollSource === 'gallery';
     statusEl.textContent = 'Enrolling on server…'; statusEl.className = 'enroll-status';
+    window.__enrolling = true;
     try {
       const images = [];
       if (fromGallery) images.push(grab(preview, 640, 0.85));
-      else for (let i = 0; i < 5; i++) { images.push(grab(video, 640, 0.85)); await sleep(180); }
-      const r = await api('/api/enroll', { method: 'POST', body: JSON.stringify({ employee_id: id, images }) }, 20000);
+      else for (let i = 0; i < 4; i++) { images.push(grab(video, 640, 0.85)); await sleep(150); }
+      const r = await api('/api/enroll', { method: 'POST', body: JSON.stringify({ employee_id: id, images }) }, 90000);
       capturedDescriptor = new Array(128).fill(0);          /* placeholder flag; the real embedding lives on the server */
       capturedPhoto = fromGallery ? preview.src : snapshotToDataUrl(video);
       statusEl.textContent = 'Face captured ✓ (' + r.samples + ' sample' + (r.samples > 1 ? 's' : '') + ')';
       statusEl.className = 'enroll-status ok';
       updateEnrollBadges();
     } catch (err) {
-      statusEl.textContent = err.name === 'AbortError' ? 'Server timeout' : err.message;
+      statusEl.textContent = err.name === 'AbortError' ? 'Server slow - please tap Capture again' : err.message;
       statusEl.className = 'enroll-status err';
-    }
+    } finally { window.__enrolling = false; }
   }, true);
 
   /* ---------- optional: keep server embeddings in sync with local employee list ---------- */

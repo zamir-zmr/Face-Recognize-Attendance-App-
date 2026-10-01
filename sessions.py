@@ -15,7 +15,7 @@ import numpy as np
 from engine import engine, pose_metrics, prepare
 from store import store
 
-MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", 0.40))    # SFace cosine (0.363 = zoo default)
+MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", 0.37))    # SFace cosine (0.363 = zoo default)
 MATCH_MARGIN = 0.03
 IDENT_FRAMES = 2
 LIVE_FRAMES = 3                 # straight-face frames used for the passive liveness (micro-motion) check
@@ -25,7 +25,7 @@ MIN_FACE_FRAC = 0.16            # face width / frame width
 SEARCH_TIMEOUT = 3.0
 HARD_TIMEOUT = 60.0
 MOTION_MIN = 0.45               # mean abs pixel diff (0-255) of fixed face ROI across the liveness frames
-UNKNOWN_LIMIT = 5
+UNKNOWN_LIMIT = 8
 FINGER_TARGETS = tuple(int(x) for x in os.getenv("FINGER_TARGETS", "1,2,3,4,5").split(",") if x.strip())
 FINGER_HOLD = 3                     # consecutive frames with the exact requested count
 FINGER_TIMEOUT = float(os.getenv("FINGER_TIMEOUT_S", 12))

@@ -116,13 +116,17 @@ def enrolled():
     return {"ids": store.ids()}
 
 
-def _enroll(emp_id: str, images: list, force: bool, relaxed: bool) -> dict:
+def _enroll(emp_id: str, images: list, force: bool, relaxed: bool, keep_existing: bool = False) -> dict:
     emp_id = emp_id.strip()
     if not emp_id or not images:
         raise HTTPException(400, "employee_id and images required")
+    if keep_existing and store.has(emp_id):      # low-res photo import must never overwrite a good live-camera enrollment
+        return {"ok": True, "employee_id": emp_id, "samples": 0, "kept": True}
     vecs, reasons = [], []
     min_score, min_frac = (0.5, 0.06) if relaxed else (ENROLL_MIN_SCORE, 0.15)
-    for data in images[:12]:
+    for data in images[:6]:
+        if len(vecs) >= 3 and not relaxed:       # 3 good samples are enough -> faster response, no timeout
+            break
         raw = decode(data)
         found = None
         for scale in ((1.0, 2.0) if relaxed else (1.0,)):      # legacy 160px photos: retry upscaled
@@ -271,7 +275,7 @@ def employees_import(body: ImportBody):
         photo = r.get("photo")
         if body.enroll and isinstance(photo, str) and photo.startswith("data:"):
             try:
-                _enroll(r["id"], [photo], True, True)
+                _enroll(r["id"], [photo], True, True, keep_existing=True)
                 enrolled += 1
             except HTTPException as e:
                 failed.append({"id": r["id"], "reason": e.detail})

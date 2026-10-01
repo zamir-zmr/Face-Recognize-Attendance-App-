@@ -10,6 +10,7 @@ Env: FIREBASE_SYNC=0 disables Firebase (falls back to Postgres via DATABASE_URL,
 import base64
 import json
 import os
+import queue
 import threading
 import time
 import urllib.error
@@ -153,11 +154,35 @@ class FileBackend:
 class FirebaseBackend:
     """Write-through: local npz cache first (works offline), then Firebase. Loads from Firebase, falls back to cache."""
     name = "firebase"
+    async_writes = True      # remote writes run in a background worker -> API calls never wait on Firebase latency
 
     def __init__(self, fb: Firebase):
         self.fb = fb
         self.local = FileBackend()
+        self._q = queue.Queue()
+        self._pending = 0
+        self._plock = threading.Lock()
         fb.get("face_meta")          # raises if unreachable / rules deny -> _make_backend falls back
+        threading.Thread(target=self._worker, daemon=True, name="firebase-writer").start()
+
+    def _worker(self):
+        while True:
+            fn = self._q.get()
+            try:
+                fn()
+            except Exception as e:  # noqa: BLE001
+                print("[store] Firebase background write failed (saved locally):", e)
+            finally:
+                with self._plock:
+                    self._pending -= 1
+
+    def _enqueue(self, fn):
+        with self._plock:
+            self._pending += 1
+        self._q.put(fn)
+
+    def busy(self) -> bool:
+        return self._pending > 0
 
     def load_all(self) -> dict:
         try:
@@ -192,22 +217,27 @@ class FirebaseBackend:
                       {"emp_id": emp_id, "vec": _enc(vec), "updated_at": {".sv": "timestamp"}})
 
     def put(self, emp_id, vec, vecs):
-        self.local.put(emp_id, vec, vecs)
-        try:
+        self.local.put(emp_id, vec, vecs)                  # fast + durable locally; Firebase follows in background
+        count = len(vecs)
+
+        def remote():
             self.fb.delete("deleted_employees/" + Firebase.key(emp_id))   # (re-)enrolling lifts the delete marker
             self._push(emp_id, vec)
-            self.fb.touch_meta(len(vecs))
-        except Exception as e:  # noqa: BLE001
-            print("[store] Firebase put failed (saved locally):", e)
+            self.fb.touch_meta(count)
+        self._enqueue(remote)
 
     def delete(self, emp_id, vecs):
         self.local.delete(emp_id, vecs)
-        try:
+        count = len(vecs)
+
+        def remote():
             self.fb.delete("face_profiles/" + Firebase.key(emp_id))
-            self.fb.delete_image("face_images/%s/profile.jpg" % Firebase.key(emp_id))
-            self.fb.touch_meta(len(vecs))
-        except Exception as e:  # noqa: BLE001
-            print("[store] Firebase delete failed (removed locally):", e)
+            try:
+                self.fb.delete_image("face_images/%s/profile.jpg" % Firebase.key(emp_id))
+            except Exception as e:  # noqa: BLE001
+                print("[store] image delete failed:", e)
+            self.fb.touch_meta(count)
+        self._enqueue(remote)
 
     def keep_only(self, keep, vecs):
         self.local.keep_only(keep, vecs)
@@ -340,9 +370,19 @@ class Store:
             self._valid = valid
             self._rebuild()
 
+    def _resig(self):
+        """Signature after our own write. With async (background) Firebase writes the remote state is not final yet,
+        so force one reload on the next refresh instead of calling the network while holding the lock."""
+        self._sig = None if getattr(self._be, "async_writes", False) else self._be.signature()
+
+    def has(self, emp_id: str) -> bool:
+        return emp_id in self._vecs
+
     def _maybe_refresh(self):
         if self.backend not in ("postgres", "firebase") or time.time() < self._next_check:
             return
+        if getattr(self._be, "busy", None) and self._be.busy():
+            return                                          # our own background write is still in flight: never reload over it
         with self._lock:
             if time.time() < self._next_check:
                 return
@@ -360,7 +400,7 @@ class Store:
             self._orphans.pop(emp_id, None)
             self._be.put(emp_id, vec, {**self._vecs, emp_id: vec.astype(np.float32)})   # persist first
             self._vecs[emp_id] = vec.astype(np.float32)
-            self._sig = self._be.signature()
+            self._resig()
             self._rebuild()
 
     def delete(self, emp_id: str, full: bool = False) -> bool:
@@ -374,7 +414,7 @@ class Store:
             rest = {k: v for k, v in self._vecs.items() if k != emp_id}
             self._be.delete(emp_id, rest)
             self._vecs = rest
-            self._sig = self._be.signature()
+            self._resig()
             self._rebuild()                                  # matcher array recalculated without this face
         if fb.enabled:
             self._sync(lambda: fb.delete_image("face_images/%s/profile.jpg" % key), "image purge")
@@ -392,7 +432,7 @@ class Store:
             if dropped:
                 self._be.keep_only(keep, rest)
                 self._vecs = rest
-                self._sig = self._be.signature()
+                self._resig()
                 self._rebuild()
             return dropped
 
