@@ -267,7 +267,7 @@
     if (!document.getElementById('gestureCss')) {
       const st = document.createElement('style'); st.id = 'gestureCss';
       st.textContent = `
-      #gestureCard{position:absolute;right:6px;top:30%;width:128px;z-index:10006;pointer-events:none;display:none;flex-direction:column;align-items:center;gap:5px;
+      #gestureCard{position:absolute; left:6px;top:30%;width:128px;z-index:10006;pointer-events:none;display:none;flex-direction:column;align-items:center;gap:5px;
         background:none;border:0;box-shadow:none;padding:0;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;color:#fff;text-align:center;
         text-shadow:0 1px 3px rgba(0,0,0,.85),0 0 8px rgba(0,0,0,.55)}
       #gestureCard .g-wrap{position:relative;width:112px;height:140px;display:flex;align-items:center;justify-content:center}
@@ -301,7 +301,7 @@
       @keyframes gRise{from{transform:scaleY(.15);opacity:0}to{transform:scaleY(1);opacity:1}}
       @keyframes gPop{0%{transform:scale(.3)}70%{transform:scale(1.15)}100%{transform:scale(1)}}
       @keyframes gDraw{to{stroke-dashoffset:0}}
-      @media (max-width:420px){#gestureCard{width:108px;right:4px}#gestureCard .g-wrap{width:96px;height:120px}#gestureCard .g-svg,#gestureCard .g-hand{width:96px;height:120px}#gestureCard .g-cap{font-size:12.5px}}`;
+      @media (max-width:420px){#gestureCard{width:108px; left:4px}#gestureCard .g-wrap{width:96px;height:120px}#gestureCard .g-svg,#gestureCard .g-hand{width:96px;height:120px}#gestureCard .g-cap{font-size:12.5px}}`;
       document.head.appendChild(st);
     }
     gEl = document.createElement('div'); gEl.id = 'gestureCard';
