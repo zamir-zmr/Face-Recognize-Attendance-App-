@@ -432,7 +432,7 @@
       else { setScanStatus(T('scanner.status.employeeMissing'), 'fail'); toast(T('scanner.status.employeeNotFound', {id: res.employee_id}), 'err'); }
     } else {
       draw(res.box, '#f43f5e', 3);
-      if (res.status === 'FACE_LOST') { setScanStatus(T('scanner.status.faceLost'), 'fail'); toast(T('scanner.status.faceLostToast', {message: res.message}), 'err'); }
+      if (res.status === 'FACE_LOST') { setScanStatus(T('scanner.status.faceLost'), 'fail');  }
       else { setScanStatus(res.message, 'fail'); toast(res.message, 'err'); }
       await sleep(1500);
     }
