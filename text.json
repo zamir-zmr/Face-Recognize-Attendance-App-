@@ -235,7 +235,7 @@
   "toast": {
     "firebaseSyncFailed": "Firebase sync failed: {error}",
     "offlineCached": "Offline - showing last synced data",
-    "backOnline": "Back online - all devices in sync",
+    "backOnline": "Back online - data sync",
     "offlineSync": "Offline - changes sync when back online",
     "firebaseReadFailed": "Firebase read failed: {error} - check Database rules",
     "migrationFailed": "Migration failed: {error}",
