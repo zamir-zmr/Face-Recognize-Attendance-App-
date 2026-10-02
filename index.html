@@ -2590,7 +2590,7 @@ renderDashboard();
     let prompt = '', big = false;
     if (res.stage === 'finger' && res.target_fingers && !done) {
       const n = res.target_fingers; big = true;
-      prompt = 'Match the gesture shown (corner)' + (typeof res.count === 'number' ? '  ·  detected ' + res.count : '');
+      prompt = 'Match the gesture on the right' + (typeof res.count === 'number' ? '  ·  detected ' + res.count : '');
     } else if (bad) prompt = res.message;
     else if (!done) prompt = res.message;
     hudPrompt.textContent = prompt;
@@ -2663,58 +2663,52 @@ renderDashboard();
     if (fCanvas && fCanvas.isConnected) fCanvas.getContext('2d').clearRect(0, 0, fCanvas.width, fCanvas.height);
   }
 
-  /* ---------- Hand-gesture challenge card (compact, corner-docked so the face area stays clear) ---------- */
-  const GESTURE_NAMES = { 1: '1 FINGER', 2: '2 FINGERS · V', 3: '3 FINGERS', 4: '4 FINGERS' };
-  const GESTURE_RAISED = { 1: [0], 2: [0, 1], 3: [0, 1, 2], 4: [0, 1, 2, 3] };   /* finger index: 0 index, 1 middle, 2 ring, 3 pinky; thumb always tucked */
+  /* ---------- Hand-gesture challenge overlay (transparent, no card; docked to the right edge so the face stays clear) ---------- */
+  const GESTURE_NAMES = { 1: '1 FINGER', 2: '2 FINGERS', 3: '3 FINGERS', 4: '4 FINGERS' };
+  const GESTURE_RAISED = { 1: [0], 2: [0, 1], 3: [0, 1, 2], 4: [0, 1, 2, 3] };   /* 0 index, 1 middle, 2 ring, 3 pinky; thumb always tucked */
   let gEl = null, gN = 0, gState = '';
   function gestureSvg(n) {
-    const up = GESTURE_RAISED[n] || [], xs = [27, 43, 59, 75], hs = [44, 52, 46, 34];
+    const up = GESTURE_RAISED[n] || [], xs = [27, 43, 59, 75], hs = [46, 54, 48, 36];
     let f = '';
     xs.forEach((x, i) => {
-      if (up.includes(i)) {
-        f += '<rect class="g-fg g-up" style="animation-delay:' + (i * 0.07) + 's" x="' + (x - 6) + '" y="' + (72 - hs[i]) + '" width="12" height="' + (hs[i] + 8) + '" rx="6"/>';
-      } else {
-        f += '<rect class="g-fg g-fold" x="' + (x - 6) + '" y="60" width="12" height="18" rx="6"/>';
-      }
+      if (up.includes(i)) f += '<rect class="g-fg g-up" style="animation-delay:' + (i * 0.07) + 's" x="' + (x - 6) + '" y="' + (72 - hs[i]) + '" width="12" height="' + (hs[i] + 8) + '" rx="6"/>';
+      else f += '<rect class="g-fg g-fold" x="' + (x - 6) + '" y="61" width="12" height="18" rx="6"/>';
     });
-    return '<svg viewBox="0 0 100 120" width="64" height="76" aria-hidden="true">' +
+    return '<svg viewBox="0 0 100 120" width="58" height="70" aria-hidden="true">' +
       '<rect class="g-palm" x="17" y="66" width="72" height="46" rx="18"/>' + f +
-      '<rect class="g-th" x="17" y="84" width="34" height="13" rx="6.5" transform="rotate(18 34 90)"/></svg>';
+      '<rect class="g-th" x="19" y="85" width="32" height="12" rx="6" transform="rotate(18 35 91)"/></svg>';
   }
   function ensureGesture() {
     if (gEl && gEl.isConnected) return gEl;
     if (!document.getElementById('gestureCss')) {
       const st = document.createElement('style'); st.id = 'gestureCss';
       st.textContent = `
-      #gestureCard{position:absolute;right:10px;bottom:10px;width:92px;z-index:10006;pointer-events:none;display:none;flex-direction:column;align-items:center;gap:4px;
-        padding:8px 6px 7px;border-radius:14px;background:rgba(15,23,42,.72);border:1.5px solid rgba(56,189,248,.75);font-family:system-ui,-apple-system,sans-serif;color:#E2E8F0;text-align:center;
-        backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);animation:gGlow 1.6s ease-in-out infinite;transition:border-color .25s,background .25s}
-      #gestureCard .g-hd{font-size:8.5px;font-weight:700;letter-spacing:.12em;color:#7DD3FC;text-transform:uppercase}
-      #gestureCard .g-wrap{position:relative;width:64px;height:76px}
-      #gestureCard .g-palm,#gestureCard .g-fg,#gestureCard .g-th{fill:#CBD5E1;stroke:#64748B;stroke-width:1.6;transition:fill .25s,stroke .25s}
-      #gestureCard .g-up{fill:#F8FAFC;stroke:#38BDF8;stroke-width:2;transform-box:fill-box;transform-origin:bottom center;animation:gRise .5s cubic-bezier(.2,.9,.3,1.2) both}
-      #gestureCard .g-fold{fill:#94A3B8}
-      #gestureCard .g-th{fill:#94A3B8}
-      #gestureCard .g-cap{font-weight:800;font-size:10.5px;letter-spacing:.04em;line-height:1.1}
-      #gestureCard .g-sub{display:flex;align-items:center;gap:4px;font-size:9.5px;opacity:.9;line-height:1}
+      #gestureCard{position:absolute;right:12px;top:34%;width:76px;z-index:10006;pointer-events:none;display:none;flex-direction:column;align-items:center;gap:3px;
+        background:none;border:0;box-shadow:none;padding:0;font-family:system-ui,-apple-system,sans-serif;color:#fff;text-align:center;
+        text-shadow:0 1px 3px rgba(0,0,0,.85),0 0 6px rgba(0,0,0,.6)}
+      #gestureCard .g-wrap{position:relative;width:58px;height:70px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7));animation:gGlow 1.6s ease-in-out infinite}
+      #gestureCard .g-palm,#gestureCard .g-fg,#gestureCard .g-th{fill:rgba(255,255,255,.10);stroke:rgba(255,255,255,.85);stroke-width:2.4;stroke-linejoin:round;transition:stroke .25s,fill .25s}
+      #gestureCard .g-fold,#gestureCard .g-th{stroke:rgba(255,255,255,.5)}
+      #gestureCard .g-up{fill:rgba(56,189,248,.28);stroke:#38BDF8;stroke-width:3;transform-box:fill-box;transform-origin:bottom center;animation:gRise .5s cubic-bezier(.2,.9,.3,1.2) both}
+      #gestureCard .g-cap{font-weight:800;font-size:10px;letter-spacing:.1em;line-height:1.1}
+      #gestureCard .g-sub{display:flex;align-items:center;gap:4px;font-size:9px;letter-spacing:.04em;line-height:1;opacity:.95}
       #gestureCard .g-dot{width:6px;height:6px;border-radius:50%;background:#F59E0B;animation:gBlink 1s ease-in-out infinite}
-      #gestureCard .g-chk{position:absolute;right:-6px;top:-4px;width:30px;height:30px;display:none}
+      #gestureCard .g-chk{position:absolute;right:-8px;top:-6px;width:28px;height:28px;display:none}
       #gestureCard .g-chk circle{fill:#10B981}
       #gestureCard .g-chk path{fill:none;stroke:#fff;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:70;stroke-dashoffset:70}
-      #gestureCard.match{border-color:#38BDF8}
       #gestureCard.match .g-dot{background:#38BDF8}
-      #gestureCard.ok{border-color:#10B981;background:rgba(6,78,59,.78);animation:none;box-shadow:0 0 14px rgba(16,185,129,.6)}
-      #gestureCard.ok .g-up{stroke:#10B981}
+      #gestureCard.ok .g-wrap{animation:none;filter:drop-shadow(0 0 6px rgba(16,185,129,.9))}
+      #gestureCard.ok .g-up{fill:rgba(16,185,129,.30);stroke:#10B981}
       #gestureCard.ok .g-dot{background:#10B981;animation:none}
       #gestureCard.ok .g-chk{display:block}
       #gestureCard.ok .g-chk circle{animation:gPop .4s ease both;transform-origin:50% 50%}
       #gestureCard.ok .g-chk path{animation:gDraw .4s ease .2s forwards}
-      @keyframes gGlow{0%,100%{box-shadow:0 0 0 0 rgba(56,189,248,.45),0 0 6px rgba(56,189,248,.25)}50%{box-shadow:0 0 0 6px rgba(56,189,248,0),0 0 16px rgba(56,189,248,.6)}}
+      @keyframes gGlow{0%,100%{filter:drop-shadow(0 1px 3px rgba(0,0,0,.7)) drop-shadow(0 0 2px rgba(56,189,248,.3))}50%{filter:drop-shadow(0 1px 3px rgba(0,0,0,.7)) drop-shadow(0 0 10px rgba(56,189,248,.95))}}
       @keyframes gBlink{0%,100%{opacity:1}50%{opacity:.35}}
       @keyframes gRise{from{transform:scaleY(.2);opacity:0}to{transform:scaleY(1);opacity:1}}
       @keyframes gPop{0%{transform:scale(.3)}70%{transform:scale(1.15)}100%{transform:scale(1)}}
       @keyframes gDraw{to{stroke-dashoffset:0}}
-      @media (max-width:420px){#gestureCard{width:78px}#gestureCard .g-wrap{width:52px;height:62px}#gestureCard .g-wrap>.g-svg svg{width:52px;height:62px}}`;
+      @media (max-width:420px){#gestureCard{right:8px;width:64px}#gestureCard .g-wrap,#gestureCard .g-wrap>.g-svg svg{width:48px;height:58px}}`;
       document.head.appendChild(st);
     }
     gEl = document.createElement('div'); gEl.id = 'gestureCard';
@@ -2726,21 +2720,21 @@ renderDashboard();
     const el = ensureGesture();
     if (gN !== n || !el.firstChild) {
       gN = n; gState = '';
-      el.innerHTML = '<div class="g-hd">Show gesture</div><div class="g-wrap"><div class="g-svg">' + gestureSvg(n) + '</div>' +
+      el.innerHTML = '<div class="g-wrap"><div class="g-svg">' + gestureSvg(n) + '</div>' +
         '<svg class="g-chk" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46"/><path d="M28 52 L44 68 L73 34"/></svg></div>' +
         '<div class="g-cap">' + (GESTURE_NAMES[n] || (n + ' FINGERS')) + '</div><div class="g-sub"><span class="g-dot"></span><span class="g-st"></span></div>';
     }
     if (gState === 'ok') return;
     const matching = typeof count === 'number' && count === n;
     el.classList.toggle('match', matching);
-    el.querySelector('.g-st').textContent = matching ? 'Hold steady' : 'Waiting';
+    el.querySelector('.g-st').textContent = matching ? 'HOLD STEADY' : 'WAITING';
     el.style.display = 'flex';
   }
   function gestureSuccess() {
     const el = ensureGesture();
     if (!el.firstChild && gN) showGesture(gN, gN);
     gState = 'ok'; el.classList.remove('match'); el.classList.add('ok');
-    const st = el.querySelector('.g-st'); if (st) st.textContent = 'Verified';
+    const st = el.querySelector('.g-st'); if (st) st.textContent = 'VERIFIED';
     el.style.display = 'flex';
   }
   function hideGesture() { if (gEl) { gEl.style.display = 'none'; gEl.classList.remove('ok', 'match'); gEl.innerHTML = ''; } gN = 0; gState = ''; }
