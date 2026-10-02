@@ -310,7 +310,7 @@
     "step": "Step {step}/2: {name}",
     "faceVerification": "Face Verification",
     "fingerChallenge": "Finger Challenge",
-    "matchGesture": "Match the gesture on the right",
+    "matchGesture": "Match the finger on the left",
     "detected": "  ·  detected {count}"
   },
   "enroll": {
