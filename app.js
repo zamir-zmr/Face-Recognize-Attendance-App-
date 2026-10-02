@@ -1007,12 +1007,25 @@ function stopScannerCamera(){
 }
 
 /* SCAN STATUS DISPLAYED STRICTLY AT BOTTOM-LEFT */
+/* The bottom-left status chip shows ONLY the messages listed in text.json -> scanner.statusAllowed.
+   Every other message is hidden here (those still appear in the top toasts / HUD). */
 function setScanStatus(text, cls){
   const el = document.getElementById('scanStatus');
-  if(el){
-    el.textContent = text; 
-    el.className = 'scan-status ' + (cls||'');
+  if(!el) return;
+  const norm = s => String(s).replace(/^step\s*\d\s*\/\s*\d\s*[\u00b7:\-\u2013]\s*/i, '').toLowerCase().replace(/[\s.\u2026]+$/, '');
+  const allowed = T('scanner.statusAllowed');
+  const t = norm(text);
+  let shown = null;
+  if(Array.isArray(allowed)){
+    for(const a of allowed){
+      const n = norm(a);
+      if(t === n || t.startsWith(n + ' ')){ shown = a; break; }
+    }
   }
+  if(shown === null){ el.style.display = 'none'; return; }
+  el.style.display = '';
+  el.textContent = shown;
+  el.className = 'scan-status ' + (cls||'');
 }
 
 /* LIVENESS HELPERS */

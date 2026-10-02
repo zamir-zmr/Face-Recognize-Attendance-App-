@@ -118,7 +118,16 @@
     "stopCamera": "Stop Camera",
     "cameraBlocked": "Camera blocked or unavailable.",
     "spoofToast": "No Natural Motion Detected — Possible Photo/Video Spoof!",
-    "pinIncorrect": "PIN Code Incorrect"
+    "pinIncorrect": "PIN Code Incorrect",
+    "statusAllowed": [
+      "Idle",
+      "Scanning face...",
+      "Timed out",
+      "Face not clearly visible",
+      "Face not recognized",
+      "Multiple faces - one person only",
+      "Look straight at the camera"
+    ]
   },
   "employees": {
     "title": "Employee Directory",
