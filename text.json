@@ -46,7 +46,7 @@
   },
   "scanner": {
     "title": "Ash Live Scanner",
-    "subtitle": "Automatic face recognition, PIN code, or device fingerprint sensor verification.",
+    "subtitle": "Automatic face recognition verification.",
     "successName": "Verified",
     "successMeta": "CHECKED IN",
     "cameraOff": "Camera is off<br>Start Camera",
