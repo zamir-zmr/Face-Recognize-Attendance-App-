@@ -301,7 +301,7 @@
       @keyframes gRise{from{transform:scaleY(.15);opacity:0}to{transform:scaleY(1);opacity:1}}
       @keyframes gPop{0%{transform:scale(.3)}70%{transform:scale(1.15)}100%{transform:scale(1)}}
       @keyframes gDraw{to{stroke-dashoffset:0}}
-      @media (max-width:420px){#gestureCard{width:108px; left:4px}#gestureCard .g-wrap{width:96px;height:120px}#gestureCard .g-svg,#gestureCard .g-hand{width:96px;height:120px}#gestureCard .g-cap{font-size:12.5px}}`;
+      @media (max-width:420px){#gestureCard{width:108px; left:-10px}#gestureCard .g-wrap{width:96px;height:120px}#gestureCard .g-svg,#gestureCard .g-hand{width:96px;height:120px}#gestureCard .g-cap{font-size:12.5px}}`;
       document.head.appendChild(st);
     }
     gEl = document.createElement('div'); gEl.id = 'gestureCard';
