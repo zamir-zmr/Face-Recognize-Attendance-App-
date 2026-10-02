@@ -267,7 +267,7 @@
     if (!document.getElementById('gestureCss')) {
       const st = document.createElement('style'); st.id = 'gestureCss';
       st.textContent = `
-      #gestureCard{position:absolute; left:3px;top:30%;width:128px;z-index:10006;pointer-events:none;display:none;flex-direction:column;align-items:center;gap:5px;
+      #gestureCard{position:absolute; left:-10px;top:30%;width:128px;z-index:10006;pointer-events:none;display:none;flex-direction:column;align-items:center;gap:5px;
         background:none;border:0;box-shadow:none;padding:0;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;color:#fff;text-align:center;
         text-shadow:0 1px 3px rgba(0,0,0,.85),0 0 8px rgba(0,0,0,.55)}
       #gestureCard .g-wrap{position:relative;width:112px;height:140px;display:flex;align-items:center;justify-content:center}
