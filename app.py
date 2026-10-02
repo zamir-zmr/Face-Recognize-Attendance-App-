@@ -102,6 +102,26 @@ def root():
     return {"service": "face-backend", "health": "/api/health", "docs": "/docs"}
 
 
+# Frontend assets (whitelist only - never expose .py / data files). Without these routes the browser gets 404 for
+# /i18n.js, /app.js, /bridge.js and /text.json and the page stays blank.
+_BASE = Path(__file__).parent
+_STATIC = {
+    "i18n.js": "application/javascript",
+    "app.js": "application/javascript",
+    "bridge.js": "application/javascript",
+    "text.json": "application/json",
+}
+
+
+@app.get("/{asset}", include_in_schema=False)
+def frontend_asset(asset: str):
+    media = _STATIC.get(asset)
+    path = _BASE / asset
+    if media is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="Not Found")
+    return FileResponse(path, media_type=media, headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/api/health")
 def health():
     return {"ok": engine.ready, "detector": engine.det_name, "recognizer": engine.rec_name,
