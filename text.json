@@ -1,6 +1,6 @@
 {
   "meta": {
-    "pageTitle": "MinMoe — Face Attendance Terminal"
+    "pageTitle": "Ash Face Attendance"
   },
   "gate": {
     "brand": "Ash Bakes<span> Attendance</span>",
@@ -17,7 +17,7 @@
     "edit": "Edit"
   },
   "nav": {
-    "brand": "Min<span>Moe</span>",
+    "brand": "Ash<span></span>",
     "scanner": "Live Scanner",
     "dashboard": "Dashboard",
     "employees": "Employees",
@@ -45,7 +45,7 @@
     "noActivity": "No attendance activity today."
   },
   "scanner": {
-    "title": "Live Scanner Terminal",
+    "title": "Ash Live Scanner",
     "subtitle": "Automatic face recognition, PIN code, or device fingerprint sensor verification.",
     "successName": "Verified",
     "successMeta": "CHECKED IN",
