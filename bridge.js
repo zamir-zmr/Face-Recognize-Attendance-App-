@@ -259,25 +259,9 @@
 
   /* ---------- Hand-gesture challenge overlay (transparent, right-docked, vector-animated; left OR right hand accepted) ---------- */
   /* gesture captions are loaded from text.json (gesture.names) */
-  const GESTURE_RAISED = { 1: [0], 2: [0, 1], 3: [0, 1, 2], 4: [0, 1, 2, 3] };   /* 0 index, 1 middle, 2 ring, 3 pinky; thumb always tucked */
+  const GESTURE_IMAGES = { 1: 'finger1.png', 2: 'finger2.png', 3: 'finger3.png', 4: 'finger4.png' };   /* gesture pictures (1-4 fingers) */
   let gEl = null, gN = 0, gState = '';
-  function gestureSvg(n) {
-    const up = GESTURE_RAISED[n] || [], xs = [34, 52, 70, 88], hs = [58, 68, 60, 46];
-    let f = '';
-    xs.forEach((x, i) => {
-      if (up.includes(i)) {
-        f += '<g class="g-up" style="animation-delay:' + (i * 0.08) + 's"><rect class="g-fg" x="' + (x - 7.5) + '" y="' + (92 - hs[i]) + '" width="15" height="' + (hs[i] + 14) + '" rx="7.5" fill="url(#gFing)"/>' +
-             '<ellipse class="g-nail" cx="' + x + '" cy="' + (92 - hs[i] + 9) + '" rx="3.6" ry="5"/></g>';
-      } else {
-        f += '<rect class="g-fold" x="' + (x - 7.5) + '" y="74" width="15" height="26" rx="7.5"/>';
-      }
-    });
-    return '<svg viewBox="0 0 120 150" width="112" height="140" aria-hidden="true">' +
-      '<defs><linearGradient id="gFing" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#BAE6FD"/></linearGradient>' +
-      '<linearGradient id="gPalm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F8FAFC"/><stop offset="1" stop-color="#93C5FD"/></linearGradient></defs>' +
-      f + '<rect class="g-palm" x="20" y="84" width="80" height="58" rx="26" fill="url(#gPalm)"/>' +
-      '<rect class="g-th" x="24" y="106" width="46" height="16" rx="8" transform="rotate(-10 47 114)"/></svg>';
-  }
+  Object.keys(GESTURE_IMAGES).forEach(function (k) { const im = new Image(); im.src = GESTURE_IMAGES[k]; });   /* preload so there is no flicker */
   function ensureGesture() {
     if (gEl && gEl.isConnected) return gEl;
     if (!document.getElementById('gestureCss')) {
@@ -289,14 +273,9 @@
       #gestureCard .g-wrap{position:relative;width:112px;height:140px;display:flex;align-items:center;justify-content:center}
       #gestureCard .g-ring{position:absolute;left:50%;top:56%;width:86px;height:86px;margin:-43px 0 0 -43px;border-radius:50%;border:2px solid rgba(56,189,248,.8);opacity:0;animation:gRing 2.4s ease-out infinite}
       #gestureCard .g-ring.r2{animation-delay:1.2s}
-      #gestureCard .g-svg{position:relative;filter:drop-shadow(0 2px 4px rgba(0,0,0,.55)) drop-shadow(0 0 8px rgba(56,189,248,.55));animation:gGlow 1.8s ease-in-out infinite}
-      #gestureCard .g-hand{display:block;animation:gFlip 5s ease-in-out infinite}
-      #gestureCard .g-palm{stroke:rgba(255,255,255,.9);stroke-width:1.5}
-      #gestureCard .g-fg{stroke:rgba(255,255,255,.95);stroke-width:1.5}
-      #gestureCard .g-fold{fill:#60A5FA;fill-opacity:.75;stroke:rgba(255,255,255,.7);stroke-width:1.3}
-      #gestureCard .g-th{fill:#7DB4F8;stroke:rgba(255,255,255,.75);stroke-width:1.3}
-      #gestureCard .g-nail{fill:rgba(14,165,233,.35)}
-      #gestureCard .g-up{transform-box:fill-box;transform-origin:bottom center;animation:gRise .6s cubic-bezier(.2,.9,.3,1.25) both,gBob 2s ease-in-out .7s infinite}
+      #gestureCard .g-svg{position:relative;width:112px;height:140px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.55)) drop-shadow(0 0 8px rgba(56,189,248,.55));animation:gGlow 1.8s ease-in-out infinite}
+      #gestureCard .g-hand{display:block;width:100%;height:100%;animation:gFlip 5s ease-in-out infinite}
+      #gestureCard .g-img{display:block;width:100%;height:100%;object-fit:contain;transform-origin:bottom center;user-select:none;-webkit-user-drag:none;animation:gImgIn .55s cubic-bezier(.2,.9,.3,1.25) both,gBob 2s ease-in-out .7s infinite}
       #gestureCard .g-cap{font-weight:800;font-size:14px;letter-spacing:.12em;line-height:1.1}
       #gestureCard .g-sub{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.06em;line-height:1}
       #gestureCard .g-dot{width:8px;height:8px;border-radius:50%;background:#F59E0B;animation:gBlink 1s ease-in-out infinite}
@@ -309,8 +288,7 @@
       #gestureCard.ok .g-ring{border-color:rgba(16,185,129,.9);animation-duration:1.4s}
       #gestureCard.ok .g-svg{animation:none;filter:drop-shadow(0 0 12px rgba(16,185,129,.95))}
       #gestureCard.ok .g-hand{animation:none}
-      #gestureCard.ok .g-fg{stroke:#10B981}
-      #gestureCard.ok .g-dot{background:#10B981;animation:none}
+            #gestureCard.ok .g-dot{background:#10B981;animation:none}
       #gestureCard.ok .g-chk{display:block}
       #gestureCard.ok .g-chk circle{animation:gPop .4s ease both;transform-origin:50% 50%}
       #gestureCard.ok .g-chk path{animation:gDraw .4s ease .2s forwards}
@@ -319,10 +297,11 @@
       @keyframes gGlow{0%,100%{filter:drop-shadow(0 2px 4px rgba(0,0,0,.55)) drop-shadow(0 0 4px rgba(56,189,248,.35))}50%{filter:drop-shadow(0 2px 4px rgba(0,0,0,.55)) drop-shadow(0 0 14px rgba(56,189,248,.95))}}
       @keyframes gBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
       @keyframes gBlink{0%,100%{opacity:1}50%{opacity:.35}}
+      @keyframes gImgIn{from{transform:translateY(14px) scale(.6);opacity:0}to{transform:translateY(0) scale(1);opacity:1}}
       @keyframes gRise{from{transform:scaleY(.15);opacity:0}to{transform:scaleY(1);opacity:1}}
       @keyframes gPop{0%{transform:scale(.3)}70%{transform:scale(1.15)}100%{transform:scale(1)}}
       @keyframes gDraw{to{stroke-dashoffset:0}}
-      @media (max-width:420px){#gestureCard{width:108px;right:4px}#gestureCard .g-wrap{width:96px;height:120px}#gestureCard .g-svg svg{width:96px;height:120px}#gestureCard .g-cap{font-size:12.5px}}`;
+      @media (max-width:420px){#gestureCard{width:108px;right:4px}#gestureCard .g-wrap{width:96px;height:120px}#gestureCard .g-svg,#gestureCard .g-hand{width:96px;height:120px}#gestureCard .g-cap{font-size:12.5px}}`;
       document.head.appendChild(st);
     }
     gEl = document.createElement('div'); gEl.id = 'gestureCard';
@@ -334,7 +313,7 @@
     const el = ensureGesture();
     if (gN !== n || !el.firstChild) {
       gN = n; gState = '';
-      el.innerHTML = '<div class="g-wrap"><span class="g-ring"></span><span class="g-ring r2"></span><div class="g-svg"><div class="g-hand">' + gestureSvg(n) + '</div></div>' +
+      el.innerHTML = '<div class="g-wrap"><span class="g-ring"></span><span class="g-ring r2"></span><div class="g-svg"><div class="g-hand"><img class="g-img" src="' + GESTURE_IMAGES[n] + '" alt="" draggable="false"></div></div>' +
         '<svg class="g-chk" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46"/><path d="M28 52 L44 68 L73 34"/></svg></div>' +
         '<div class="g-cap">' + (T('gesture.names.' + n) || T('gesture.namesFallback', {n: n})) + '</div><div class="g-sub"><span class="g-dot"></span><span class="g-st"></span></div>' +
         '<div class="g-hint">' + T('gesture.eitherHand') + '</div>';

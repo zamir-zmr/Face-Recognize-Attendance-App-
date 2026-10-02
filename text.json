@@ -1,6 +1,6 @@
 {
   "meta": {
-    "pageTitle": "Ash Face Attendance"
+    "pageTitle": "MinMoe — Face Attendance Terminal"
   },
   "gate": {
     "brand": "Ash Bakes<span> Attendance</span>",
@@ -17,7 +17,7 @@
     "edit": "Edit"
   },
   "nav": {
-    "brand": "Ash<span></span>",
+    "brand": "Min<span>Moe</span>",
     "scanner": "Live Scanner",
     "dashboard": "Dashboard",
     "employees": "Employees",
@@ -45,7 +45,7 @@
     "noActivity": "No attendance activity today."
   },
   "scanner": {
-    "title": "Ash Live Scanner",
+    "title": "Live Scanner Terminal",
     "subtitle": "Automatic face recognition, PIN code, or device fingerprint sensor verification.",
     "successName": "Verified",
     "successMeta": "CHECKED IN",
@@ -279,7 +279,7 @@
     "verified": "VERIFIED"
   },
   "engine": {
-    "ready": "Face Engine ✓",
+    "ready": "Python Face Engine ✓",
     "fingerOff": " · Finger challenge OFF ⚠",
     "hints": {
       "oldEngine": "Old engine.py is still deployed. Push the latest engine.py, then Render → Manual Deploy → Clear build cache & deploy.",

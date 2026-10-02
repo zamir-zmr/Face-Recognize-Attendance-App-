@@ -110,6 +110,10 @@ _STATIC = {
     "app.js": "application/javascript",
     "bridge.js": "application/javascript",
     "text.json": "application/json",
+    "finger1.png": "image/png",
+    "finger2.png": "image/png",
+    "finger3.png": "image/png",
+    "finger4.png": "image/png",
 }
 
 
