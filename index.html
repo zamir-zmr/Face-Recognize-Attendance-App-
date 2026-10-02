@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Face Attendance Terminal</title>
+<title>MinMoe — Face Attendance Terminal</title>
 <style>
 :root {
   --bg: #030712;
@@ -2590,7 +2590,7 @@ renderDashboard();
     let prompt = '', big = false;
     if (res.stage === 'finger' && res.target_fingers && !done) {
       const n = res.target_fingers; big = true;
-      prompt = 'Show ' + n + (n === 1 ? ' finger' : ' fingers') + (typeof res.count === 'number' ? '  ·  detected ' + res.count : '');
+      prompt = 'Match the gesture below' + (typeof res.count === 'number' ? '  ·  detected ' + res.count : '');
     } else if (bad) prompt = res.message;
     else if (!done) prompt = res.message;
     hudPrompt.textContent = prompt;
@@ -2663,6 +2663,80 @@ renderDashboard();
     if (fCanvas && fCanvas.isConnected) fCanvas.getContext('2d').clearRect(0, 0, fCanvas.width, fCanvas.height);
   }
 
+  /* ---------- Animated hand-gesture challenge card (synced with detection) ---------- */
+  const GESTURE_NAMES = { 1: 'Index finger', 2: 'Victory (V) sign', 3: 'Three fingers', 4: 'Open palm · thumb tucked' };
+  const GESTURE_RAISED = { 1: [1], 2: [1, 2], 3: [1, 2, 3], 4: [1, 2, 3, 4] };   /* 0 thumb, 1 index, 2 middle, 3 ring, 4 pinky */
+  let gEl = null, gN = 0, gState = '';
+  function gestureSvg(n) {
+    const up = GESTURE_RAISED[n] || [], fx = { 1: 34, 2: 52, 3: 70, 4: 88 }, fh = { 1: 58, 2: 70, 3: 62, 4: 48 };
+    let f = '';
+    [1, 2, 3, 4].forEach((k, i) => {
+      const raised = up.includes(k), h = raised ? fh[k] : 16;
+      f += '<rect class="g-f' + (raised ? ' g-up' : '') + '" style="animation-delay:' + (i * 0.09) + 's" x="' + (fx[k] - 8) + '" y="' + (92 - h) + '" width="16" height="' + (h + 6) + '" rx="8"/>';
+    });
+    f += '<path class="g-f g-thumb" d="M30 112 C20 104 14 98 20 92 C26 86 34 94 42 102 Z"/>';   /* thumb always tucked */
+    return '<svg viewBox="0 0 120 140" width="120" height="140" aria-hidden="true">' + f +
+      '<rect class="g-f" x="24" y="88" width="76" height="46" rx="20"/></svg>';
+  }
+  function ensureGesture() {
+    if (gEl && gEl.isConnected) return gEl;
+    if (!document.getElementById('gestureCss')) {
+      const st = document.createElement('style'); st.id = 'gestureCss';
+      st.textContent = `
+      #gestureCard{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:10006;pointer-events:none;display:none;flex-direction:column;align-items:center;
+        padding:10px 18px 12px;border-radius:20px;background:rgba(15,23,42,.88);border:2px solid #F59E0B;font-family:system-ui,sans-serif;color:#fff;text-align:center;
+        animation:gPulse 1.2s ease-in-out infinite;transition:border-color .25s,background .25s}
+      #gestureCard .g-wrap{position:relative;width:120px;height:140px}
+      #gestureCard .g-f{fill:#FBBF24;stroke:#92400E;stroke-width:2;transition:fill .3s}
+      #gestureCard .g-thumb{fill:#FCD34D}
+      #gestureCard .g-up{transform-box:fill-box;transform-origin:bottom center;animation:gRise .55s cubic-bezier(.2,1.4,.4,1) both,gWave 1.6s ease-in-out .6s infinite}
+      #gestureCard .g-cap{font-weight:800;font-size:14px;margin-top:2px}
+      #gestureCard .g-sub{font-size:12px;opacity:.8;margin-top:2px}
+      #gestureCard .g-chk{position:absolute;inset:0;display:none;align-items:center;justify-content:center}
+      #gestureCard .g-chk svg{width:96px;height:96px;filter:drop-shadow(0 0 10px rgba(16,185,129,.9))}
+      #gestureCard .g-chk circle{fill:#10B981}
+      #gestureCard .g-chk path{fill:none;stroke:#fff;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:70;stroke-dashoffset:70}
+      #gestureCard.match{border-color:#38bdf8;animation:gPulseBlue .6s ease-in-out infinite}
+      #gestureCard.ok{border-color:#10B981;background:rgba(6,78,59,.92);animation:gPop .5s ease both}
+      #gestureCard.ok .g-svg{opacity:.18;transition:opacity .3s}
+      #gestureCard.ok .g-chk{display:flex}
+      #gestureCard.ok .g-chk circle{animation:gPop .45s ease both}
+      #gestureCard.ok .g-chk path{animation:gDraw .45s ease .25s forwards}
+      @keyframes gPulse{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.55),0 0 14px rgba(245,158,11,.35)}50%{box-shadow:0 0 0 12px rgba(245,158,11,0),0 0 28px rgba(245,158,11,.75)}}
+      @keyframes gPulseBlue{0%,100%{box-shadow:0 0 0 0 rgba(56,189,248,.6),0 0 16px rgba(56,189,248,.5)}50%{box-shadow:0 0 0 12px rgba(56,189,248,0),0 0 30px rgba(56,189,248,.9)}}
+      @keyframes gRise{from{transform:scaleY(.15);opacity:0}to{transform:scaleY(1);opacity:1}}
+      @keyframes gWave{0%,100%{transform:rotate(0)}50%{transform:rotate(-3deg)}}
+      @keyframes gPop{0%{transform:translateX(-50%) scale(.9)}60%{transform:translateX(-50%) scale(1.07)}100%{transform:translateX(-50%) scale(1)}}
+      @keyframes gDraw{to{stroke-dashoffset:0}}`;
+      document.head.appendChild(st);
+    }
+    gEl = document.createElement('div'); gEl.id = 'gestureCard';
+    camBox().appendChild(gEl);
+    return gEl;
+  }
+  /* n = required fingers (1-4), count = fingers currently detected (face is guaranteed present by the server for this frame) */
+  function showGesture(n, count) {
+    const el = ensureGesture();
+    if (gN !== n || !el.firstChild) {
+      gN = n; gState = '';
+      el.innerHTML = '<div class="g-wrap"><div class="g-svg">' + gestureSvg(n) + '</div><div class="g-chk"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46"/><path d="M28 52 L44 68 L73 34"/></svg></div></div>' +
+        '<div class="g-cap">' + (GESTURE_NAMES[n] || (n + ' fingers')) + '</div><div class="g-sub"></div>';
+    }
+    if (gState === 'ok') return;
+    const matching = typeof count === 'number' && count === n;
+    el.classList.toggle('match', matching);
+    el.querySelector('.g-sub').textContent = matching ? 'Hold steady…' : 'Show this gesture with your face in view' + (typeof count === 'number' ? ' · detected ' + count : '');
+    el.style.display = 'flex';
+  }
+  function gestureSuccess() {
+    const el = ensureGesture();
+    if (!el.firstChild && gN) showGesture(gN, gN);
+    gState = 'ok'; el.classList.remove('match'); el.classList.add('ok');
+    const sub = el.querySelector('.g-sub'); if (sub) sub.textContent = 'Face + gesture verified ✓';
+    el.style.display = 'flex';
+  }
+  function hideGesture() { if (gEl) { gEl.style.display = 'none'; gEl.classList.remove('ok', 'match'); gEl.innerHTML = ''; } gN = 0; gState = ''; }
+
   window.runFaceScan = async function () {
     if (!backend.ok) { setScanStatus('Connecting to server…', 'detecting'); scanGapMs = 700; await ping(); isProcessingFrame = false; return; }
     isProcessingFrame = true;
@@ -2721,8 +2795,10 @@ renderDashboard();
           if (res.stage === 'finger') {                                /* Step 2/2 */
             setFingers(res.face_present === false ? [] : (res.fingers || []), video);
             const n = res.target_fingers;
-            setScanStatus('Step 2/2 · Show ' + n + (n === 1 ? ' finger' : ' fingers'), 'detecting');
-          } else {                                                     /* Step 1/2 */
+            showGesture(n, res.count);
+            setScanStatus('Step 2/2 · Match the gesture (' + n + (n === 1 ? ' finger' : ' fingers') + ')', 'detecting');
+          } else {
+            hideGesture();                                                     /* Step 1/2 */
             setScanStatus((two ? 'Step 1/2 · ' : '') + res.message, 'detecting');
           }
           await sleep(CFG.gapMs);
@@ -2737,7 +2813,8 @@ renderDashboard();
 
     isVerifyingLiveness = false;
     clearFingers();
-    if (!scanStream || !res) { hideHud(); isProcessingFrame = false; return; }
+    if (!scanStream || !res) { hideGesture(); hideHud(); isProcessingFrame = false; return; }
+    if (!(res.state === 'passed' && res.face_verified && res.finger_verified && res.stage === 'passed')) hideGesture();
 
     if (res.state === 'idle') {
       guide.classList.remove('active'); draw(null);
@@ -2751,6 +2828,9 @@ renderDashboard();
       setScanStatus('Face + Finger both required', 'fail'); toast('Face + Finger both required', 'err');
     } else if (res.state === 'passed') {
       draw(res.box, '#10b981', 3);
+      if (res.target_fingers) { showGesture(res.target_fingers, res.target_fingers); }
+      gestureSuccess(); await sleep(1100);                  /* SUCCESS / checkmark state before completing verification */
+      hideGesture();
       const emp = employees.find(e => e.id === res.employee_id);
       if (emp) { setScanStatus('Verified: ' + emp.name, 'success'); logAttendance(emp, 'Face + Finger Verification'); }
       else { setScanStatus('Employee record missing on this device', 'fail'); toast('Employee ' + res.employee_id + ' not found locally', 'err'); }
