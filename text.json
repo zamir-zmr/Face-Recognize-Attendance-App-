@@ -279,7 +279,7 @@
     "verified": "VERIFIED"
   },
   "engine": {
-    "ready": "Python Face Engine ✓",
+    "ready": "Face Engine ✓",
     "fingerOff": " · Finger challenge OFF ⚠",
     "hints": {
       "oldEngine": "Old engine.py is still deployed. Push the latest engine.py, then Render → Manual Deploy → Clear build cache & deploy.",
