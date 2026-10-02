@@ -1,0 +1,323 @@
+{
+  "meta": {
+    "pageTitle": "MinMoe — Face Attendance Terminal"
+  },
+  "gate": {
+    "brand": "Ash Bakes<span> Attendance</span>",
+    "enterPin": "Enter Admin PIN to Access",
+    "invalidPin": "Invalid Admin PIN",
+    "enterPinFor": "Enter PIN to access {page}",
+    "locked": "Admin Panel Locked"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "notEnrolled": "Not Enrolled",
+    "enrolled": "Enrolled",
+    "delete": "Delete",
+    "edit": "Edit"
+  },
+  "nav": {
+    "brand": "Min<span>Moe</span>",
+    "scanner": "Live Scanner",
+    "dashboard": "Dashboard",
+    "employees": "Employees",
+    "reports": "Attendance Reports",
+    "loadingDate": "Loading…",
+    "lockAdmin": "Lock Admin Access"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "Overview of today's attendance metrics and logs.",
+    "stats": {
+      "totalEmployees": "Registered Employees",
+      "checkedIn": "Checked IN Today",
+      "checkedOut": "Checked OUT Today",
+      "faceEnrolled": "Face Data Enrolled"
+    },
+    "recentActivity": "Recent Activity",
+    "table": {
+      "employee": "Employee",
+      "id": "ID",
+      "date": "Date",
+      "time": "Time",
+      "status": "Status"
+    },
+    "noActivity": "No attendance activity today."
+  },
+  "scanner": {
+    "title": "Live Scanner Terminal",
+    "subtitle": "Automatic face recognition, PIN code, or device fingerprint sensor verification.",
+    "successName": "Verified",
+    "successMeta": "CHECKED IN",
+    "cameraOff": "Camera is off<br>Start Camera",
+    "status": {
+      "idle": "Idle",
+      "scanning": "Scanning face...",
+      "modelsUnavailable": "Models unavailable",
+      "noRecords": "No face records enrolled",
+      "notRecognized": "Face not recognized",
+      "spoof": "Spoof Detected! (Static Image/Frozen Video)",
+      "serverOffline": "Server offline - finger challenge required",
+      "connecting": "Connecting to server…",
+      "reconnecting": "Reconnecting…",
+      "matchGestureOne": "Step 2/2 · Match the gesture ({n} finger)",
+      "matchGestureMany": "Step 2/2 · Match the gesture ({n} fingers)",
+      "step1Prefix": "Step 1/2 · ",
+      "unstable": "Connection unstable - retrying…",
+      "syncingRecords": "Syncing face records to server…",
+      "bothRequired": "Face + Finger both required",
+      "employeeMissing": "Employee record missing on this device",
+      "employeeNotFound": "Employee {id} not found locally",
+      "faceLost": "FACE_LOST - REJECT/RESET - back to Step 1",
+      "faceLostToast": "FACE_LOST: {message}"
+    },
+    "startCamera": "Start Camera",
+    "bulbTitle": "Tap: toggle flash · Long-press: ON / OFF / AUTO",
+    "mode": {
+      "in": "IN",
+      "out": "OUT",
+      "auto": "AUTO"
+    },
+    "checkingEngine": "Checking Face Engine…",
+    "retryModels": "Retry Models",
+    "tabPin": "PIN Code",
+    "tabFingerprint": "Fingerprint",
+    "pinPlaceholder": "••••",
+    "verifyPin": "Verify PIN",
+    "fp": {
+      "hint": "Use the fingerprint sensor",
+      "sub": "Use your phone’s built-in fingerprint sensor to verify.",
+      "retry": "Try Sensor Again",
+      "waiting": "Waiting for fingerprint sensor…",
+      "noRecords": "No employee records found.",
+      "noneEnrolled": "No fingerprint enrolled",
+      "enrollFirst": "Enroll a fingerprint for an employee first (Employees → Add/Edit).",
+      "followPrompt": "Follow your phone’s lock-screen fingerprint prompt now.",
+      "unavailable": "Sensor unavailable",
+      "unavailableSub": "WebAuthn platform authenticator requires HTTPS and browser support.",
+      "verified": "Verified: {name}",
+      "matched": "Fingerprint matched successfully.",
+      "notRecognized": "Fingerprint not recognized",
+      "notMatched": "The scanned fingerprint does not match any enrolled user.",
+      "cancelled": "Verification cancelled or timed out",
+      "tryAgainSub": "Tap below to try using the fingerprint sensor again."
+    },
+    "lastVerified": "Last Verified",
+    "noLogYet": "No verification log yet.",
+    "models": {
+      "loading": "Loading Models…",
+      "loaded": "Models Loaded ✓",
+      "failed": "Models Failed — Tap Retry",
+      "failedToast": "Failed to load Face Models."
+    },
+    "flashTitle": "Flash: {mode} · Tap: toggle · Long-press: ON / OFF / AUTO",
+    "flashOn": "ON",
+    "flashOff": "OFF",
+    "flashAuto": "AUTO",
+    "startCameraFirst": "Start camera first",
+    "stopCamera": "Stop Camera",
+    "cameraBlocked": "Camera blocked or unavailable.",
+    "spoofToast": "No Natural Motion Detected — Possible Photo/Video Spoof!",
+    "pinIncorrect": "PIN Code Incorrect"
+  },
+  "employees": {
+    "title": "Employee Directory",
+    "subtitle": "Manage staff accounts and facial descriptors.",
+    "searchPlaceholder": "Search employee name or ID…",
+    "exportJson": "Export JSON",
+    "importJson": "Import JSON",
+    "add": "+ Add Employee",
+    "noFaceData": "No Face Data",
+    "noneFound": "No employees found.",
+    "deleteTitle": "Delete employee?",
+    "deleteMessage": "{name} will be removed from all devices (profile, photo and face data). Other employees are not touched.",
+    "deleted": "Employee deleted",
+    "deleteFailed": "Delete NOT saved: {error}",
+    "exportNone": "No employee records to export",
+    "exported": "Employees JSON Exported",
+    "invalidJson": "Invalid JSON format",
+    "noValidRecords": "No valid employee records in file",
+    "importDone": "Imported to Firebase: {added} added, {updated} updated",
+    "importSkipped": ", {skipped} skipped",
+    "faceServer": "Face data on server: {enrolled} enrolled",
+    "faceServerFailed": ", {failed} need re-capture",
+    "parseFailed": "Failed to parse JSON file"
+  },
+  "reports": {
+    "title": "Attendance Reports & Audit Logs",
+    "subtitle": "Filter logs and export records.",
+    "filters": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "month": "This Month",
+      "custom": "Custom Date"
+    },
+    "exportExcel": "📥 Export Excel",
+    "filterPlaceholder": "Filter logs by name or ID…",
+    "table": {
+      "id": "ID",
+      "name": "Name",
+      "date": "Date",
+      "inTime": "IN Time",
+      "outTime": "OUT Time",
+      "status": "Status",
+      "method": "Method"
+    },
+    "noMatch": "No matching logs found for selected filter.",
+    "exportNone": "No attendance logs to export.",
+    "exportHeaders": [
+      "Employee ID",
+      "Name",
+      "Date",
+      "IN Time",
+      "OUT Time",
+      "Status",
+      "Verification Method"
+    ],
+    "csvFallback": "Excel library offline - CSV downloaded",
+    "workbookCreator": "Attendance System",
+    "worksheetName": "Attendance",
+    "excelDownloaded": "Excel Report Downloaded"
+  },
+  "modal": {
+    "addTitle": "Add Employee",
+    "subtitle": "Fill in details and enroll biometrics for terminal access.",
+    "basicDetails": "Basic Details",
+    "employeeId": "Employee ID",
+    "employeeIdPlaceholder": "e.g. EMP-101",
+    "fullName": "Full Name",
+    "fullNamePlaceholder": "e.g. Rashid Al-Habsi",
+    "department": "Department",
+    "departmentPlaceholder": "e.g. Bakery",
+    "accessPin": "Access PIN (exactly 4 digits)",
+    "pinPlaceholder": "1234",
+    "facialEnrollment": "Facial Enrollment",
+    "selectedPhotoAlt": "Selected Photo",
+    "startRegCamera": "Start Reg Camera",
+    "chooseGallery": "Choose from Gallery",
+    "captureFace": "Capture Face Data",
+    "fingerprintEnrollment": "Fingerprint Enrollment",
+    "deviceSensor": "Device Fingerprint Sensor",
+    "fpHintInitial": "Assign a tag, then capture via the side-button sensor.",
+    "fpTag": "Fingerprint Tag (unique ID)",
+    "fpTagPlaceholder": "e.g. FP-101",
+    "captureFp": "Capture Fingerprint Data",
+    "save": "Save Employee",
+    "editTitle": "Edit Employee",
+    "cameraUnavailable": "Camera unavailable.",
+    "photoSelected": "Photo selected from gallery. Click \"Capture Face Data\" to extract embedding.",
+    "photoOnly": "Saved Photo only (No face model)",
+    "extracting": "Extracting Descriptor…",
+    "noFaceInPhoto": "No face detected in photo!",
+    "faceCaptured": "Face captured ✓",
+    "faceExtractFailed": "Face extraction failed.",
+    "enterIdFirst": "Enter Employee ID first.",
+    "enterTagFirst": "Enter a Fingerprint Tag first.",
+    "tagUsed": "This tag is already used by another employee.",
+    "webauthnUnsupported": "WebAuthn not supported in this browser context (needs HTTPS).",
+    "noSensor": "No built-in fingerprint/biometric sensor detected on this device.",
+    "followPromptEnroll": "Follow your phone’s lock-screen fingerprint prompt…",
+    "relyingPartyName": "MinMoe Attendance",
+    "fpEnrolledHint": "Fingerprint enrolled on this device’s sensor.",
+    "fpCaptured": "Fingerprint captured ✓",
+    "fpHintReset": "Assign a tag, then capture via the fingerprint sensor.",
+    "fpEnrollFailed": "Fingerprint enrollment cancelled or failed — try again.",
+    "idNameRequired": "ID & Name required.",
+    "idLocked": "Employee ID cannot be changed - add a new employee instead",
+    "idExists": "ID already exists.",
+    "saved": "Employee Saved",
+    "saveNotSynced": "Save NOT synced to Firebase"
+  },
+  "errors": {
+    "emptyId": "Employee ID is empty",
+    "collectionAccess": "Refusing collection-level access: {path}"
+  },
+  "toast": {
+    "firebaseSyncFailed": "Firebase sync failed: {error}",
+    "offlineCached": "Offline - showing last synced data",
+    "backOnline": "Back online - all devices in sync",
+    "offlineSync": "Offline - changes sync when back online",
+    "firebaseReadFailed": "Firebase read failed: {error} - check Database rules",
+    "migrationFailed": "Migration failed: {error}",
+    "firebaseError": "Firebase: {error}",
+    "employeeIdentified": "Employee Identified",
+    "faceVerificationComplete": "Face Verification Complete",
+    "pinFormat": "PIN must be exactly 4 digits (numbers only)"
+  },
+  "status": {
+    "IN": "IN",
+    "OUT": "OUT"
+  },
+  "files": {
+    "employeesBackup": "Employees_Backup_{date}.json",
+    "attendanceReport": "Attendance_Report_{date}.{ext}"
+  },
+  "methods": {
+    "pin": "PIN Code",
+    "fingerprint": "Fingerprint (Platform Authenticator)",
+    "manual": "Manual",
+    "faceFinger": "Face + Finger Verification"
+  },
+  "attendance": {
+    "alreadyIn": "{name} Already Checked In",
+    "alreadyOut": "{name} Already Checked Out",
+    "checked": "CHECKED {action} ({time})",
+    "lastMeta": "{action} at {time} • Via {method}",
+    "recorded": "Attendance Recorded: {name} ({action})"
+  },
+  "gesture": {
+    "names": {
+      "1": "1 FINGER",
+      "2": "2 FINGERS",
+      "3": "3 FINGERS",
+      "4": "4 FINGERS"
+    },
+    "namesFallback": "{n} FINGERS",
+    "eitherHand": "LEFT OR RIGHT HAND",
+    "holdSteady": "HOLD STEADY",
+    "waiting": "WAITING",
+    "verified": "VERIFIED"
+  },
+  "engine": {
+    "ready": "Python Face Engine ✓",
+    "fingerOff": " · Finger challenge OFF ⚠",
+    "hints": {
+      "oldEngine": "Old engine.py is still deployed. Push the latest engine.py, then Render → Manual Deploy → Clear build cache & deploy.",
+      "modelMissing": "Model file missing. Add \"python download_models.py\" to the Render Build Command, then Clear build cache & deploy.",
+      "glLibrary": "MediaPipe needs a system GL library that Render does not have. Pin mediapipe==0.10.21 (bundled libs): push the latest download_models.py + requirements.txt, then Clear build cache & deploy.",
+      "tooNew": "MediaPipe is too new for the old API. Deploy the latest engine.py (Tasks API).",
+      "notInstalled": "MediaPipe is not installed on the server (Python {python}). Build log should show \"ok mediapipe==0.10.21 installed\". mediapipe 0.10.21 needs Python 3.9-3.12: add a .python-version file containing 3.12.3 to the repo root, then Clear build cache & deploy.",
+      "generic": "Open Render → Logs and search \"MediaPipe\" for the exact error."
+    },
+    "notice": {
+      "title": "⚠ Finger challenge is not available",
+      "reason": "Reason: {reason}",
+      "reasonDefault": "engine reports finger detection is off",
+      "fix": "Fix: {fix}",
+      "recheck": "Recheck",
+      "close": "Close"
+    }
+  },
+  "sync": {
+    "progress": "Syncing faces {current}/{total}…",
+    "serverTimeout": "server timeout",
+    "synced": "{count} synced to server",
+    "needReenroll": "{count} need re-enrollment (Edit → capture) — {reason}"
+  },
+  "hud": {
+    "verifiedTwoStep": "Step 2/2 ✓ Verified",
+    "verified": "✓ Verified",
+    "step": "Step {step}/2: {name}",
+    "faceVerification": "Face Verification",
+    "fingerChallenge": "Finger Challenge",
+    "matchGesture": "Match the gesture on the right",
+    "detected": "  ·  detected {count}"
+  },
+  "enroll": {
+    "enterIdFirst": "Enter Employee ID first",
+    "enrolling": "Enrolling on server…",
+    "capturedOne": "Face captured ✓ ({count} sample)",
+    "capturedMany": "Face captured ✓ ({count} samples)",
+    "serverSlow": "Server slow - please tap Capture again"
+  }
+}
