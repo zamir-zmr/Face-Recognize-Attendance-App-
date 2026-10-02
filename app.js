@@ -303,7 +303,7 @@ function tickClock(){
 setInterval(tickClock, 1000); tickClock();
 
 /* NAV & TAB SWITCHING */
-function navigateToPage(pageName){
+function navigateToPage(pageName, fromHistory){
   currentPage = pageName;
   
   if(pageName !== 'scanner') {
@@ -321,7 +321,48 @@ function navigateToPage(pageName){
   if(pageName==='dashboard') renderDashboard();
   if(pageName==='employees') renderEmployees();
   if(pageName==='reports') refreshReports();
+
+  /* record this page in the browser history so the phone Back button returns to the previous page */
+  if(!fromHistory && history.state && history.state.page !== pageName){
+    history.pushState({page: pageName}, '', '#' + pageName);
+  }
 }
+
+/* BACK BUTTON / HISTORY: Back goes to the previous page (or closes an open popup) and never closes the app */
+(function initHistory(){
+  try{
+    history.replaceState({page: 'scanner', root: true}, '', location.pathname + location.search);
+    history.pushState({page: 'scanner'}, '', '#scanner');
+  }catch(e){ return; }
+  window.addEventListener('popstate', function(e){
+    const st = e.state || {};
+    const keep = () => history.pushState({page: currentPage}, '', '#' + currentPage);   /* re-add the entry that Back just removed */
+    const gate = document.getElementById('gate');
+    if(gate && gate.style.display === 'flex'){ closeGate(); keep(); return; }
+    const modal = document.getElementById('empModalBg');
+    if(modal && modal.classList.contains('show')){ closeEmpModal(); keep(); return; }
+    if(st.root || !st.page){                      /* already at the first screen: stay inside the app */
+      keep();
+      if(currentPage !== 'scanner') navigateToPage('scanner', true);
+      return;
+    }
+    let page = st.page;
+    if(page !== 'scanner' && !isAdminUnlocked) page = 'scanner';
+    navigateToPage(page, true);
+  });
+})();
+
+/* CAMERA BUTTON: fixed size and layout (icon on the left, "Stop" / "Camera" on two lines) - never resizes */
+(function lockCameraButton(){
+  const st = document.createElement('style'); st.id = 'camBtnLockCss';
+  st.textContent = `
+  #camToggleBtn{width:84px !important;min-width:84px !important;max-width:84px !important;height:38px !important;min-height:38px !important;max-height:38px !important;
+    flex:0 0 84px !important;box-sizing:border-box !important;padding:0 8px !important;display:flex !important;flex-direction:row !important;align-items:center !important;
+    justify-content:flex-start !important;gap:6px !important;overflow:hidden !important}
+  #camToggleBtn svg{flex:0 0 14px !important;width:14px !important;height:14px !important}
+  #camToggleBtn span{display:block !important;width:min-content !important;white-space:normal !important;text-align:left !important;line-height:1.15 !important;font-size:.72rem !important}`;
+  document.head.appendChild(st);
+})();
 
 document.querySelectorAll('.nav-item').forEach(item=>{
   item.addEventListener('click', ()=>{
@@ -1016,7 +1057,9 @@ function setScanStatus(text, cls){
   const allowed = T('scanner.statusAllowed');
   const t = norm(text);
   let shown = null;
-  if(Array.isArray(allowed)){
+  const fm = t.match(/^match the gesture \((\d)\s*finger/);        /* finger challenge (1-4) -> "Show N finger(s)" */
+  if(fm){ shown = T(fm[1] === '1' ? 'scanner.status.showOne' : 'scanner.status.showMany', {n: fm[1]}); }
+  else if(Array.isArray(allowed)){
     for(const a of allowed){
       const n = norm(a);
       if(t === n || t.startsWith(n + ' ')){ shown = a; break; }

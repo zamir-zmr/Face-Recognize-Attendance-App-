@@ -69,7 +69,9 @@
       "employeeMissing": "Employee record missing on this device",
       "employeeNotFound": "Employee {id} not found locally",
       "faceLost": "FACE_LOST - REJECT/RESET - back to Step 1",
-      "faceLostToast": "FACE_LOST: {message}"
+      "faceLostToast": "FACE_LOST: {message}",
+      "showOne": "Show {n} finger",
+      "showMany": "Show {n} fingers"
     },
     "startCamera": "Start Camera",
     "bulbTitle": "Tap: toggle flash · Long-press: ON / OFF / AUTO",
@@ -122,6 +124,7 @@
     "statusAllowed": [
       "Idle",
       "Scanning face...",
+      "Recognizing",
       "Timed out",
       "Face not clearly visible",
       "Face not recognized",
