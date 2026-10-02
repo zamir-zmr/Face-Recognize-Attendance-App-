@@ -239,6 +239,12 @@ def _finger_step(s: Session, bgr: np.ndarray, now: float) -> dict:
     s.last_face_t = s.link_t = now
 
     hand = engine.analyze_hand(frame)                           # same frame as the face above
+    if not hand or hand.get("count") != s.f_target:
+        # Left/right-hand safety net: a detector tuned for one hand orientation may miscount the other. Re-read the
+        # horizontally mirrored copy of the SAME frame; a match there means the user raised the opposite hand.
+        mirrored = engine.analyze_hand(cv2.flip(frame, 1))
+        if mirrored and mirrored.get("count") == s.f_target and not (hand and hand.get("count") == s.f_target):
+            hand = dict(mirrored, box=None, fingers=[])         # coordinates are mirrored -> not drawn
     count = hand["count"] if hand else None
     extra = dict(count=count, fingers=hand["fingers"] if hand else [], hand_box=hand["box"] if hand else None,
                  target_fingers=s.f_target, box=s.face_box, face_present=True, **info)
