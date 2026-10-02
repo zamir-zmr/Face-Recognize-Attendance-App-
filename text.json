@@ -3,7 +3,7 @@
     "pageTitle": "Ash Face Attendance"
   },
   "gate": {
-    "brand": "Ash Bakes<span> Attendance</span>",
+    "brand": "Ash<span> Attendance</span>",
     "enterPin": "Enter Admin PIN to Access",
     "invalidPin": "Invalid Admin PIN",
     "enterPinFor": "Enter PIN to access {page}",
