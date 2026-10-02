@@ -1058,7 +1058,12 @@ function setScanStatus(text, cls){
   const t = norm(text);
   let shown = null;
   const fm = t.match(/^match the gesture \((\d)\s*finger/);        /* finger challenge (1-4) -> "Show N finger(s)" */
+  const aliases = T('scanner.statusAliases');                       /* server wording -> text shown in the chip */
   if(fm){ shown = T(fm[1] === '1' ? 'scanner.status.showOne' : 'scanner.status.showMany', {n: fm[1]}); }
+  else if(aliases && typeof aliases === 'object' && Object.keys(aliases).some(k => t === norm(k) || t.startsWith(norm(k) + ' '))){
+    const k = Object.keys(aliases).find(k => t === norm(k) || t.startsWith(norm(k) + ' '));
+    shown = aliases[k];
+  }
   else if(Array.isArray(allowed)){
     for(const a of allowed){
       const n = norm(a);

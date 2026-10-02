@@ -68,7 +68,7 @@
       "bothRequired": "Face + Finger both required",
       "employeeMissing": "Employee record missing on this device",
       "employeeNotFound": "Employee {id} not found locally",
-      "faceLost": "FACE_LOST - REJECT/RESET - back to Step 1",
+      "faceLost": "Face not visible",
       "faceLostToast": "FACE_LOST: {message}",
       "showOne": "Show {n} finger",
       "showMany": "Show {n} fingers"
@@ -126,11 +126,15 @@
       "Scanning face...",
       "Recognizing",
       "Timed out",
+      "Face not visible",
       "Face not clearly visible",
       "Face not recognized",
       "Multiple faces - one person only",
-      "Look straight at the camera"
-    ]
+      "Look Camera"
+    ],
+    "statusAliases": {
+      "Look straight at the camera": "Look Camera"
+    }
   },
   "employees": {
     "title": "Employee Directory",
