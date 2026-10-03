@@ -129,11 +129,17 @@
       "Face not visible",
       "Face not clearly visible",
       "Face not recognized",
+      "Face lost",
+      "Light too low",
+      "No Multi people",
       "Multiple faces - one person only",
       "Look Camera"
     ],
     "statusAliases": {
-      "Look straight at the camera": "Look Camera"
+      "Look straight at the camera": "Look Camera",
+      "Face lost": "Face lost",
+      "Lighting too low": "Light too low",
+      "Multiple faces": "No Multi people"
     }
   },
   "employees": {
