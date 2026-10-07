@@ -271,6 +271,7 @@ function tryUnlock(){
   if(pinBuffer === adminPin){
     isAdminUnlocked = true;
     document.getElementById('gate').style.display='none';
+    setTimeout(() => window.enablePush && window.enablePush(), 600);   /* PWA: ask notification permission after admin login */
     pinBuffer=''; renderDots();
     if(pendingPageTarget){ navigateToPage(pendingPageTarget); pendingPageTarget = null; }
   } else {
@@ -1528,3 +1529,62 @@ document.getElementById('exportCsvBtn').addEventListener('click', async ()=>{
 /* INITIALIZATION */
 loadFaceModels(true);
 renderDashboard();
+
+
+/* ===== PWA: manifest, service worker, install prompt, FCM push ===== */
+const VAPID_KEY = 'PASTE_YOUR_FIREBASE_WEB_PUSH_VAPID_KEY_HERE';   /* Firebase Console > Project settings > Cloud Messaging > Web Push certificates */
+(function pwaInit(){
+  const head = document.head;
+  [['link', {rel:'manifest', href:'/manifest.json'}],
+   ['link', {rel:'apple-touch-icon', href:'/icon-192.png'}],
+   ['meta', {name:'theme-color', content:'#030712'}],
+   ['meta', {name:'mobile-web-app-capable', content:'yes'}],
+   ['meta', {name:'apple-mobile-web-app-capable', content:'yes'}]
+  ].forEach(([tag, attrs]) => { if(head.querySelector(tag + '[' + Object.keys(attrs)[0] + '="' + Object.values(attrs)[0] + '"]')) return;
+    const el = document.createElement(tag); Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v)); head.appendChild(el); });
+
+  let swReg = null;
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(r => { swReg = r; r.update().catch(()=>{}); }).catch(e => console.warn('SW register failed', e)));
+  }
+
+  /* Install button (Android/Chrome): shows a small floating "Install" chip */
+  let deferred = null;
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault(); deferred = e;
+    if(document.getElementById('pwaInstall')) return;
+    const b = document.createElement('button'); b.id = 'pwaInstall'; b.textContent = 'Install App';
+    b.style.cssText = 'position:fixed;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:9999;padding:10px 16px;border:0;border-radius:999px;background:linear-gradient(135deg,#0ea5e9,#6366f1);color:#fff;font-weight:700;box-shadow:0 8px 24px rgba(14,165,233,.4)';
+    b.onclick = async () => { b.remove(); deferred.prompt(); await deferred.userChoice.catch(()=>{}); deferred = null; };
+    document.body.appendChild(b);
+  });
+  window.addEventListener('appinstalled', () => { const b = document.getElementById('pwaInstall'); if(b) b.remove(); });
+
+  /* FCM */
+  const loadScript = src => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  let msgInit = false;
+  window.enablePush = async function(){
+    try{
+      if(!('Notification' in window) || !('serviceWorker' in navigator)) return;
+      if(VAPID_KEY.startsWith('PASTE_')){ console.warn('FCM: set VAPID_KEY in app.js'); return; }
+      if(Notification.permission === 'denied') return;
+      if(Notification.permission === 'default' && (await Notification.requestPermission()) !== 'granted') return;
+      if(!window.firebase.messaging) await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
+      const reg = swReg || await navigator.serviceWorker.ready;
+      const messaging = firebase.messaging();
+      const token = await messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
+      if(!token) return;
+      if(localStorage.getItem('fcm_token') !== token){
+        await fdb.ref('fcm_tokens/' + token.replace(/[.#$\[\]\/]/g, '_')).set({ token, ua: navigator.userAgent.slice(0, 120), updatedAt: TS() });
+        localStorage.setItem('fcm_token', token);
+      }
+      if(!msgInit){
+        msgInit = true;
+        messaging.onMessage(p => {                                  /* app open: in-app toast instead of system notification */
+          const n = p.notification || p.data || {};
+          toast((n.title ? n.title + ': ' : '') + (n.body || ''), 'ok');
+        });
+      }
+    }catch(e){ console.warn('FCM setup failed', e); }
+  };
+})();
