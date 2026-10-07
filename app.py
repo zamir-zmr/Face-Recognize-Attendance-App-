@@ -1,10 +1,8 @@
 """Run:  pip install -r requirements.txt && python download_models.py && uvicorn app:app --host 0.0.0.0 --port 8000
 Env (optional): FACE_API_KEY, CORS_ORIGINS="https://your-app.vercel.app,http://localhost:5500", MATCH_THRESHOLD, POSE_TIMEOUT_S"""
 import base64
-import json
 import os
 import platform
-import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -19,7 +17,7 @@ from pydantic import BaseModel
 import download_models
 import sessions
 from engine import engine, prepare
-from store import fb, store
+from store import store
 
 API_KEY = os.getenv("FACE_API_KEY", "")
 ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
@@ -116,11 +114,6 @@ _STATIC = {
     "finger2.png": "image/png",
     "finger3.png": "image/png",
     "finger4.png": "image/png",
-    "manifest.json": "application/manifest+json",
-    "sw.js": "application/javascript",
-    "icon-192.png": "image/png",
-    "icon-512.png": "image/png",
-    "icon-maskable-512.png": "image/png",
 }
 
 
@@ -130,10 +123,7 @@ def frontend_asset(asset: str):
     path = _BASE / asset
     if media is None or not path.is_file():
         raise HTTPException(status_code=404, detail="Not Found")
-    headers = {"Cache-Control": "no-cache"}
-    if asset == "sw.js":
-        headers["Service-Worker-Allowed"] = "/"        # SW must control the whole site and never be HTTP-cached
-    return FileResponse(path, media_type=media, headers=headers)
+    return FileResponse(path, media_type=media, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/health")
@@ -262,65 +252,6 @@ def logs_range(start: str, end: str = ""):
     return {"logs": store.get_logs(start, end or start)}
 
 
-# ---------- FCM push (HTTP v1). Env: FCM_SERVICE_ACCOUNT_JSON = full service-account JSON (Firebase > Project settings > Service accounts) ----------
-_FCM_SA = os.getenv("FCM_SERVICE_ACCOUNT_JSON", "")
-
-
-def _fcm_access_token():
-    from google.auth.transport.requests import Request as GReq     # lazy: only needed when push is configured
-    from google.oauth2 import service_account
-    cred = service_account.Credentials.from_service_account_info(
-        json.loads(_FCM_SA), scopes=["https://www.googleapis.com/auth/firebase.messaging"])
-    cred.refresh(GReq())
-    return cred.token, json.loads(_FCM_SA)["project_id"]
-
-
-def send_push(title: str, body: str, data: dict | None = None) -> dict:
-    """Sends a data-only push to every token in Firebase fcm_tokens/. Dead tokens are removed. Never raises."""
-    if not _FCM_SA or not fb.enabled:
-        return {"sent": 0, "skipped": "FCM_SERVICE_ACCOUNT_JSON not set"}
-    import urllib.request
-    import urllib.error
-    try:
-        access, project = _fcm_access_token()
-        tokens = fb.get("fcm_tokens") or {}
-    except Exception as e:  # noqa: BLE001
-        print("[push] setup failed:", e)
-        return {"sent": 0, "error": str(e)}
-    sent = 0
-    for key, rec in tokens.items():
-        tok = (rec or {}).get("token")
-        if not tok:
-            continue
-        payload = {"message": {"token": tok, "data": {"title": title, "body": body, **{k: str(v) for k, v in (data or {}).items()}},
-                               "webpush": {"headers": {"Urgency": "high"}}}}
-        req = urllib.request.Request("https://fcm.googleapis.com/v1/projects/%s/messages:send" % project,
-                                     data=json.dumps(payload).encode(), method="POST",
-                                     headers={"Authorization": "Bearer " + access, "Content-Type": "application/json"})
-        try:
-            urllib.request.urlopen(req, timeout=8).read()
-            sent += 1
-        except urllib.error.HTTPError as e:
-            if e.code in (404, 410):                                 # UNREGISTERED -> drop token
-                try:
-                    fb.delete("fcm_tokens/" + key)
-                except Exception:  # noqa: BLE001
-                    pass
-        except Exception as e:  # noqa: BLE001
-            print("[push] send failed:", e)
-    return {"sent": sent}
-
-
-class PushBody(BaseModel):
-    title: str = "Attendance"
-    body: str = ""
-
-
-@app.post("/api/push/send", dependencies=[Depends(auth)])
-def push_send(body: PushBody):
-    return send_push(body.title, body.body)
-
-
 @app.post("/api/attendance", dependencies=[Depends(auth)])
 def attendance_add(body: dict):
     emp = str(body.get("empId") or body.get("employee_id") or "").strip()
@@ -332,12 +263,7 @@ def attendance_add(body: dict):
     body = {k: v for k, v in body.items() if k != "session_id"}
     sess.face_done = sess.finger_done = False        # single use: a verified session can log attendance only once
     sessions.save(sess)
-    ok = store.log_attendance(emp, body)
-    if ok and _FCM_SA:                                # fire-and-forget push to registered devices
-        name = str(body.get("name") or emp)
-        kind = "Check-out" if body.get("exit") and not body.get("entrance") else "Check-in"
-        threading.Thread(target=send_push, args=("Attendance", "%s: %s" % (kind, name)), daemon=True).start()
-    return {"ok": ok}
+    return {"ok": store.log_attendance(emp, body)}
 
 
 class ImportBody(BaseModel):
