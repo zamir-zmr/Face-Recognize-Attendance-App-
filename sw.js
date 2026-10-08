@@ -13,7 +13,7 @@ firebase.initializeApp({
 });
 const messaging = firebase.messaging();
 
-const VERSION = 'v2';
+const VERSION = 'v3';
 const SHELL = `shell-${VERSION}`, RUNTIME = `runtime-${VERSION}`;
 const APP_SHELL = ['/', '/app.js', '/bridge.js', '/i18n.js', '/text.json', '/manifest.json',
                    '/icon-192.png', '/icon-512.png', '/finger1.png', '/finger2.png', '/finger3.png', '/finger4.png'];

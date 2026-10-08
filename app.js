@@ -251,7 +251,7 @@ const LS_PIN_PEND = 'ash_pin_pending';
 const PinStore = (() => {
   const rd = k => { try{ return localStorage.getItem(k) || ''; }catch(e){ return ''; } };
   const wr = (k, v) => { try{ localStorage.setItem(k, v); }catch(e){} };
-  const valid = v => /^\d{4}$/.test(String(v == null ? '' : v));
+  const valid = v => /^\d{4,12}$/.test(String(v == null ? '' : v));
   const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
   const getPend = () => { try{ return JSON.parse(rd(LS_PIN_PEND) || '{}') || {}; }catch(e){ return {}; } };
   const setPend = o => wr(LS_PIN_PEND, JSON.stringify(o));
@@ -302,8 +302,20 @@ const PinStore = (() => {
     await load(true, 3500);                          /* PIN may have been changed on another device */
     return !!st[w] && pin === st[w];
   }
+  async function change(w, cur, pin){
+    if(st[w] && !(await check(w, cur))) return { ok: false, reason: 'wrong' };
+    const r = await save(w, pin);
+    return { ok: true, synced: r.synced };
+  }
+  try{                                              /* live sync: a PIN changed on any device reaches this one at once */
+    fdb.ref(PIN_PATH).on('value', snap => {
+      const v = snap.val() || {}, pend = getPend();
+      ['app', 'dash'].forEach(w => { const rem = v[PIN_KEYS[w]]; if(valid(rem) && !pend[w]){ st[w] = String(rem); wr(PIN_LS[w], st[w]); } });
+      st.online = true;
+    }, () => {});
+  }catch(e){}
   window.addEventListener('online', () => { load(true); });
-  return { get: w => st[w], isOnline: () => st.online, load, save, check };
+  return { get: w => st[w], has: w => !!st[w], isOnline: () => st.online, load, save, check, change };
 })();
 
 const PAD_KEYS = ['1','2','3','4','5','6','7','8','9','⌫','0','OK'];
@@ -315,12 +327,22 @@ class PinPad{
     this.card = card;
     this.badge = card.querySelector('.pin-badge'); this.title = card.querySelector('.gate-title'); this.sub = card.querySelector('.gate-sub');
     this.dotsEl = card.querySelector('.pin-dots'); this.dots = [...this.dotsEl.children]; this.msg = card.querySelector('.gate-msg'); this.kp = card.querySelector('.keypad');
-    this.buf = ''; this.busy = false; this.fails = 0; this.lockUntil = 0; this.onSubmit = null; this._t = [];
+    this.buf = ''; this.busy = false; this.fails = 0; this.lockUntil = 0; this.onSubmit = null; this._t = []; this.len = 0;
     PAD_KEYS.forEach(k => {
       const b = document.createElement('button'); b.textContent = k;
       if(k === '⌫' || k === 'OK') b.classList.add('wide');
       b.addEventListener('click', () => this.key(k));
       this.kp.appendChild(b);
+    });
+  }
+  keyboard(isActive){
+    document.addEventListener('keydown', e => {
+      if(!isActive() || e.ctrlKey || e.metaKey || e.altKey) return;
+      if(/^\d$/.test(e.key)) this.key(e.key);
+      else if(e.key === 'Backspace') this.key('⌫');
+      else if(e.key === 'Enter') this.key('OK');
+      else return;
+      e.preventDefault();
     });
   }
   later(fn, ms){ const id = setTimeout(fn, ms); this._t.push(id); return id; }
@@ -329,8 +351,13 @@ class PinPad{
     if(step){ this.card.classList.remove('step'); void this.card.offsetWidth; this.card.classList.add('step'); }
   }
   state(s){ ['st-ok','st-err','st-busy'].forEach(c => this.card.classList.remove(c)); if(s) this.card.classList.add('st-' + s); }
+  setLen(n){ this.len = n || 0; this.render(); }
   render(){
-    this.kp.querySelectorAll('button:not(.wide)').forEach(b => b.classList.toggle('locked', this.buf.length >= 4));
+    const max = this.len || 12, want = Math.min(12, Math.max(this.len || 4, this.buf.length));
+    if(this.dots.length !== want){
+      this.dotsEl.innerHTML = '<i></i>'.repeat(want); this.dots = [...this.dotsEl.children];
+    }
+    this.kp.querySelectorAll('button:not(.wide)').forEach(b => b.classList.toggle('locked', this.buf.length >= max));
     this.dots.forEach((d, i) => d.classList.toggle('on', i < this.buf.length));
   }
   clear(){ this.buf = ''; this.render(); }
@@ -347,15 +374,15 @@ class PinPad{
     if(Date.now() < this.lockUntil) return;
     if(k === '⌫'){ this.buf = this.buf.slice(0, -1); }
     else if(k === 'OK'){ this.submit(); return; }
-    else if(this.buf.length < 4){
+    else if(this.buf.length < (this.len || 12)){
       this.buf += k;
-      if(this.buf.length === 4){ this.render(); this.later(() => this.submit(), 170); return; }
+      if(this.len && this.buf.length === this.len){ this.render(); this.later(() => this.submit(), 170); return; }
     }
     this.render();
   }
   submit(){
     if(this.busy || !this.onSubmit) return;
-    if(this.buf.length !== 4){ this.fail(T('pin.fourDigits'), true); return; }
+    if(this.buf.length < 4){ this.fail(T('pin.fourDigits'), true); return; }
     const v = this.buf; this.busy = true; this.kp.classList.add('off'); this.state('busy');
     Promise.resolve(this.onSubmit(v)).catch(() => { this.fail(T('pin.wrong')); });
   }
@@ -398,16 +425,18 @@ function runPinFlow(pad, which, texts){
     let first = '';
     pad.reset();
     if(exists){
+      pad.setLen(PinStore.get(which).length);
       pad.texts(texts.title, texts.sub, true);
       pad.onSubmit = async v => {
         if(await PinStore.check(which, v)){ await pad.success(); resolve({ created: false }); }
-        else pad.fail(T('pin.wrong'));
+        else { pad.setLen(PinStore.has(which) ? PinStore.get(which).length : 0); pad.fail(T('pin.wrong')); }
       };
     } else {
+      pad.setLen(0);
       pad.texts(texts.createTitle, texts.createSub, true);
       pad.onSubmit = async v => {
-        if(!first){ first = v; pad.reset(); pad.texts(T('pin.confirmTitle'), T('pin.confirmSub'), true); return; }
-        if(v !== first){ first = ''; pad.fail(T('pin.mismatch'), true); pad.later(() => pad.texts(texts.createTitle, texts.createSub, true), 780); return; }
+        if(!first){ first = v; pad.reset(); pad.setLen(first.length); pad.texts(T('pin.confirmTitle'), T('pin.confirmSub'), true); return; }
+        if(v !== first){ first = ''; pad.fail(T('pin.mismatch'), true); pad.later(() => { pad.setLen(0); pad.texts(texts.createTitle, texts.createSub, true); }, 780); return; }
         pad.loading(T('pin.saving'));
         const r = await PinStore.save(which, v);
         await pad.success();
@@ -423,17 +452,23 @@ const appLockEl = document.getElementById('appLock');
 const appLockCard = document.getElementById('appLockCard');
 buildPadCard(appLockCard, true);
 const appPad = new PinPad(appLockCard);
-(async function runAppLock(){
+function endAppLock(instant){
+  const root = document.documentElement;
+  if(instant){ root.classList.remove('ash-locked'); appLockEl.style.display = 'none'; return; }
+  root.classList.add('ash-lock-fade'); root.classList.remove('ash-locked'); appLockEl.classList.add('hide');
+  setTimeout(() => { appLockEl.style.display = 'none'; root.classList.remove('ash-lock-fade'); }, 700);
+}
+appPad.keyboard(() => !appLockEl.classList.contains('hide') && appLockEl.style.display !== 'none' && document.documentElement.classList.contains('ash-locked'));
+(async function runAppLock(){                          /* Welcome screen = ONE-TIME registration. Once an App PIN exists it never shows again. */
   try{
-    appPad.texts(T('pin.appTitle'), T('pin.connecting'));
-    if(PinStore.get('app')) PinStore.load();         /* PIN already on this device: unlock instantly, refresh in background */
-    else { appPad.loading(T('pin.connecting')); await PinStore.load(); appPad.ready(); }
-    const r = await runPinFlow(appPad, 'app', { title: T('pin.appTitle'), sub: T('pin.appSub'), createTitle: T('pin.appCreateTitle'), createSub: T('pin.appCreateSub') });
-    appLockEl.classList.add('hide');
-    document.documentElement.classList.remove('ash-locked');
-    setTimeout(() => { appLockEl.style.display = 'none'; }, 700);
+    if(PinStore.has('app')){ PinStore.load(); endAppLock(true); return; }
+    appPad.texts(T('pin.appCreateTitle'), T('pin.connecting'));
+    appPad.loading(T('pin.connecting')); await PinStore.load(); appPad.ready();
+    if(PinStore.has('app')){ endAppLock(false); return; }         /* already registered (another device / earlier) */
+    const r = await runPinFlow(appPad, 'app', { title: '', sub: '', createTitle: T('pin.appCreateTitle'), createSub: T('pin.appCreateSub') });
+    endAppLock(false);
     if(r.created && !r.synced) setTimeout(() => toast(T('pin.savedOffline'), 'info'), 700);
-  }catch(e){ appLockEl.classList.add('hide'); document.documentElement.classList.remove('ash-locked'); setTimeout(() => { appLockEl.style.display = 'none'; }, 700); }
+  }catch(e){ endAppLock(false); }
 })();
 
 /* ----- DASHBOARD / ADMIN GATE (Dashboard, Employees, Reports) - unlocked once per app session ----- */
@@ -449,6 +484,7 @@ gateCard.insertBefore(gateCard.querySelector('.gate-msg'), gateCard.querySelecto
 gateCard.insertBefore(gateCard.querySelector('.keypad'), gateCard.querySelector('.gate-msg').nextSibling);
 ['pinDots','gateMsg','keypad'].forEach(id => { const e = document.getElementById(id); if(e) e.remove(); });   /* old static copies */
 let gatePad = null, gateRun = 0;
+let gateKbBound = false;
 function gateVisible(){ return gateEl.style.display === 'flex'; }
 function hideGate(){
   gateEl.classList.add('fade-out');
@@ -458,14 +494,15 @@ async function openGate(targetPage){
   pendingPageTarget = targetPage;
   const run = ++gateRun;
   if(!gatePad){ gatePad = new PinPad(gateCard); }
+  if(!gateKbBound){ gateKbBound = true; gatePad.keyboard(() => gateVisible()); }
   gatePad.reset();
   gateEl.classList.remove('fade-out'); gateEl.style.display = 'flex';
-  gatePad.texts(T('pin.dashTitle'), T('pin.dashSub', { page: targetPage.toUpperCase() }));
+  gatePad.texts(T('pin.dashTitle'), T('pin.dashSub', { page: T(targetPage === 'settings' ? 'pin.settingsName' : 'nav.' + targetPage).toUpperCase() }));
   if(!PinStore.get('dash')){ gatePad.loading(T('pin.connecting')); await PinStore.load(); gatePad.ready(); }
   else PinStore.load();
   if(run !== gateRun || !gateVisible()) return;
   const r = await runPinFlow(gatePad, 'dash', {
-    title: T('pin.dashTitle'), sub: T('pin.dashSub', { page: targetPage.toUpperCase() }),
+    title: T('pin.dashTitle'), sub: T('pin.dashSub', { page: T(targetPage === 'settings' ? 'pin.settingsName' : 'nav.' + targetPage).toUpperCase() }),
     createTitle: T('pin.dashCreateTitle'), createSub: T('pin.dashCreateSub') });
   if(run !== gateRun) return;
   isAdminUnlocked = true;                              /* stays unlocked for ALL admin tabs until the app is closed or "Lock Admin" is pressed */
@@ -473,7 +510,7 @@ async function openGate(targetPage){
   setTimeout(() => window.enablePush && window.enablePush(), 600);   /* PWA: ask notification permission after admin login */
   if(r.created && !r.synced) toast(T('pin.savedOffline'), 'info');
   const tgt = pendingPageTarget; pendingPageTarget = null;
-  if(tgt) navigateToPage(tgt);
+  if(tgt === 'settings') openSettings(); else if(tgt) navigateToPage(tgt);
 }
 function closeGate(){
   gateRun++;
@@ -497,6 +534,92 @@ function showResult(type, title, msg, ms){
   const done = () => { if(gone) return; gone = true; bg.classList.remove('show'); setTimeout(() => bg.remove(), 320); };
   bg.addEventListener('click', done); setTimeout(done, ms);
 }
+
+/* ===== SETTINGS (change App PIN / Dashboard PIN - stored in Firebase + local copy) ===== */
+const EYE_ON = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF = '<svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 6.2A9.7 9.7 0 0 1 12 6c6.4 0 10 6 10 6a17 17 0 0 1-3.2 3.9M6.5 7.6A16.6 16.6 0 0 0 2 12s3.6 7 10 7a9.6 9.6 0 0 0 4-.9"/></svg>';
+let settingsBg = null;
+function pinField(label, id){
+  return '<label class="st-f"><span>' + label + '</span><div class="st-in"><input type="password" inputmode="numeric" autocomplete="off" maxlength="12" id="' + id + '" placeholder="&bull;&bull;&bull;&bull;">'
+    + '<button type="button" class="st-eye" tabindex="-1">' + EYE_ON + '</button></div></label>';
+}
+function buildSettingsSection(which, icon, title, sub){
+  const sec = document.createElement('section'); sec.className = 'st-sec'; sec.dataset.which = which;
+  const has = PinStore.has(which);
+  sec.innerHTML = '<div class="st-sh"><div class="st-si">' + icon + '</div><div><div class="st-st">' + title + '</div><div class="st-ss">' + sub + '</div></div><span class="st-chip"></span></div>'
+    + (has ? pinField(T('pin.currentPin'), 'stCur_' + which) : '')
+    + pinField(T('pin.newPin'), 'stNew_' + which) + pinField(T('pin.confirmNewPin'), 'stCnf_' + which)
+    + '<div class="st-msg"></div><button type="button" class="st-btn"><span class="st-bt">' + T(has ? 'pin.update' : 'pin.create') + '</span><i class="st-spin"></i></button>';
+  sec.querySelectorAll('.st-in').forEach(w => {
+    const inp = w.querySelector('input'), eye = w.querySelector('.st-eye');
+    inp.addEventListener('input', () => { inp.value = inp.value.replace(/\D/g, '').slice(0, 12); sec.querySelector('.st-msg').textContent = ''; });
+    eye.addEventListener('click', () => { const show = inp.type === 'password'; inp.type = show ? 'text' : 'password'; eye.innerHTML = show ? EYE_OFF : EYE_ON; });
+  });
+  sec.querySelector('.st-btn').addEventListener('click', () => submitSettingsPin(sec));
+  return sec;
+}
+function setChip(sec){
+  const chip = sec.querySelector('.st-chip'), on = PinStore.isOnline();
+  chip.className = 'st-chip ' + (on === false ? 'off' : 'on');
+  chip.textContent = T(on === false ? 'pin.chipDevice' : 'pin.chipSynced');
+}
+async function submitSettingsPin(sec){
+  const which = sec.dataset.which, msg = sec.querySelector('.st-msg'), btn = sec.querySelector('.st-btn');
+  if(btn.classList.contains('busy')) return;
+  const cur = (sec.querySelector('#stCur_' + which) || {}).value || '', nw = sec.querySelector('#stNew_' + which).value, cf = sec.querySelector('#stCnf_' + which).value;
+  const bad = text => {
+    msg.textContent = text; sec.classList.remove('shake'); void sec.offsetWidth; sec.classList.add('shake');
+    try{ navigator.vibrate && navigator.vibrate([50, 30, 70]); }catch(e){}
+  };
+  if(PinStore.has(which) && !cur) return bad(T('pin.enterCurrent'));
+  if(!/^\d{4,12}$/.test(nw)) return bad(T('pin.lengthRule'));
+  if(nw !== cf) return bad(T('pin.mismatch'));
+  if(PinStore.has(which) && nw === PinStore.get(which)) return bad(T('pin.sameAsOld'));
+  btn.classList.add('busy');
+  let r; try{ r = await PinStore.change(which, cur, nw); }catch(e){ r = { ok: false, reason: 'error' }; }
+  btn.classList.remove('busy');
+  if(!r.ok){
+    bad(r.reason === 'wrong' ? T('pin.currentWrong') : T('pin.failedTitle'));
+    if(r.reason === 'wrong') showResult('err', T('pin.wrong'), T('pin.currentWrong'), 1800);
+    return;
+  }
+  showResult('ok', T('pin.updatedTitle'), T(r.synced ? 'pin.updatedSynced' : 'pin.updatedLocal'), 2200);
+  sec.querySelectorAll('input').forEach(i => { i.value = ''; });
+  setChip(sec); sec.querySelector('.st-bt').textContent = T('pin.update');
+  if(!sec.querySelector('#stCur_' + which)){                       /* first PIN just created -> from now on ask for the current PIN */
+    sec.querySelector('.st-f').insertAdjacentHTML('beforebegin', pinField(T('pin.currentPin'), 'stCur_' + which));
+    const w = sec.querySelector('#stCur_' + which).parentNode, inp = w.querySelector('input'), eye = w.querySelector('.st-eye');
+    inp.addEventListener('input', () => { inp.value = inp.value.replace(/\D/g, '').slice(0, 12); msg.textContent = ''; });
+    eye.addEventListener('click', () => { const show = inp.type === 'password'; inp.type = show ? 'text' : 'password'; eye.innerHTML = show ? EYE_OFF : EYE_ON; });
+  }
+}
+function openSettings(){
+  if(!settingsBg){
+    settingsBg = document.createElement('div'); settingsBg.id = 'settingsBg'; settingsBg.className = 'st-bg';
+    settingsBg.innerHTML = '<div class="st-card"><div class="st-head"><div class="st-hi"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></div>'
+      + '<div class="st-ht"><div class="st-title">' + T('pin.settingsTitle') + '</div><div class="st-sub">' + T('pin.settingsSub') + '</div></div><button type="button" class="st-x" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="st-body"></div></div>';
+    document.body.appendChild(settingsBg);
+    settingsBg.querySelector('.st-x').addEventListener('click', () => closeSettings());
+    settingsBg.addEventListener('click', e => { if(e.target === settingsBg) closeSettings(); });
+  }
+  const body = settingsBg.querySelector('.st-body'); body.innerHTML = '';
+  body.appendChild(buildSettingsSection('app', '<svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>', T('pin.secAppTitle'), T('pin.secAppSub')));
+  body.appendChild(buildSettingsSection('dash', '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>', T('pin.secDashTitle'), T('pin.secDashSub')));
+  body.querySelectorAll('.st-sec').forEach(setChip);
+  PinStore.load().then(() => body.querySelectorAll('.st-sec').forEach(setChip));
+  requestAnimationFrame(() => requestAnimationFrame(() => settingsBg.classList.add('show')));
+  history.pushState({ page: currentPage, settings: true }, '', '#' + currentPage);
+}
+function closeSettings(fromPop){
+  if(settingsBg) settingsBg.classList.remove('show');
+  if(!fromPop && history.state && history.state.settings){ try{ history.back(); }catch(e){} }
+}
+(function mountSettingsButton(){
+  const b = document.createElement('button'); b.id = 'settingsBtn'; b.type = 'button'; b.setAttribute('aria-label', 'Settings');
+  b.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
+  b.addEventListener('click', () => { if(isAdminUnlocked) openSettings(); else openGate('settings'); });
+  document.body.appendChild(b);
+})();
 
 document.getElementById('logoutBtn').addEventListener('click', ()=>{
   isAdminUnlocked = false;
@@ -549,6 +672,8 @@ function navigateToPage(pageName, fromHistory){
     const keep = () => history.pushState({page: currentPage}, '', '#' + currentPage);   /* re-add the entry that Back just removed */
     const gate = document.getElementById('gate');
     if(gate && gate.style.display === 'flex'){ closeGate(); keep(); return; }
+    const stBg = document.getElementById('settingsBg');
+    if(stBg && stBg.classList.contains('show')){ closeSettings(true); return; }
     const modal = document.getElementById('empModalBg');
     if(modal && modal.classList.contains('show')){ closeEmpModal(); keep(); return; }
     if(st.root || !st.page){                      /* already at the first screen: stay inside the app */

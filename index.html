@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>document.documentElement.classList.add("ash-locked")</script>
+<script>try{if(!localStorage.getItem("ash_pin_app"))document.documentElement.classList.add("ash-locked")}catch(e){document.documentElement.classList.add("ash-locked")}</script>
 <meta charset="UTF-8">
 <meta name="theme-color" content="#030712">
 <link rel="manifest" href="/manifest.json">
@@ -743,6 +743,58 @@ html.ash-locked #app{visibility:hidden}
 @keyframes pinDotPop{0%{transform:scale(.5)}60%{transform:scale(1.35)}100%{transform:scale(1.1)}}
 @keyframes pinDotOk{0%{transform:scale(1)}50%{transform:scale(1.5)}100%{transform:scale(1.1)}}
 @keyframes rsBar{to{transform:scaleX(0)}}
+
+/* ===== SETTINGS ===== */
+html:not(.ash-locked):not(.ash-lock-fade) #appLock{display:none}
+#settingsBtn{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);right:12px;z-index:900;width:42px;height:42px;border-radius:13px;border:1px solid var(--line);background:var(--panel2);color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.35);transition:transform .25s cubic-bezier(.34,1.56,.64,1),border-color .2s,color .2s}
+#settingsBtn svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;transition:transform .5s ease}
+#settingsBtn:hover{border-color:var(--accent);color:var(--accent)}
+#settingsBtn:hover svg,#settingsBtn:active svg{transform:rotate(90deg)}
+#settingsBtn:active{transform:scale(.92)}
+.st-bg{position:fixed;inset:0;z-index:55000;display:flex;align-items:flex-end;justify-content:center;background:rgba(2,6,23,.6);backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity .28s}
+.st-bg.show{opacity:1;pointer-events:auto}
+.st-card{width:100%;max-width:480px;max-height:92vh;display:flex;flex-direction:column;background:var(--panel2);border:1px solid var(--line);border-bottom:none;border-radius:24px 24px 0 0;color:var(--text);box-shadow:0 -20px 60px rgba(0,0,0,.55);transform:translateY(60px);opacity:0;transition:transform .42s cubic-bezier(.2,.9,.25,1.05),opacity .25s}
+.st-bg.show .st-card{transform:none;opacity:1}
+@media(min-width:600px){.st-bg{align-items:center;padding:20px}.st-card{border-radius:24px;border-bottom:1px solid var(--line);max-height:88vh;transform:translateY(24px) scale(.94)}}
+.st-head{display:flex;align-items:center;gap:12px;padding:18px 18px 14px;border-bottom:1px solid var(--line)}
+.st-hi{width:42px;height:42px;border-radius:13px;display:flex;align-items:center;justify-content:center;background:var(--accent-glow);color:var(--accent);flex:0 0 auto}
+.st-hi svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.st-bg.show .st-hi svg{animation:stGear 1.1s ease .15s both}
+.st-ht{flex:1;min-width:0}
+.st-title{font-size:1.1rem;font-weight:800}
+.st-sub{font-size:.76rem;color:var(--sub);margin-top:2px}
+.st-x{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--sub);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s}
+.st-x:hover{color:var(--danger);border-color:var(--danger)}
+.st-x svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.3;stroke-linecap:round}
+.st-body{padding:14px 16px calc(18px + env(safe-area-inset-bottom,0px));overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.st-sec{padding:14px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.025);animation:pinStep .45s ease both}
+.st-sec:nth-child(2){animation-delay:.08s}
+.st-sec.shake{animation:pinShake .5s both;border-color:var(--danger)}
+.st-sh{display:flex;align-items:center;gap:11px;margin-bottom:12px}
+.st-si{width:36px;height:36px;border-radius:11px;background:var(--accent-glow);color:var(--accent);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.st-si svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.st-sh>div:nth-child(2){flex:1;min-width:0}
+.st-st{font-weight:800;font-size:.95rem}
+.st-ss{font-size:.72rem;color:var(--sub);margin-top:1px}
+.st-chip{font-size:.62rem;font-weight:800;letter-spacing:.4px;padding:4px 9px;border-radius:20px;text-transform:uppercase;flex:0 0 auto}
+.st-chip.on{background:rgba(16,185,129,.14);color:var(--ok)}
+.st-chip.off{background:rgba(245,158,11,.14);color:var(--warn)}
+.st-f{display:block;margin-bottom:10px}
+.st-f>span{display:block;font-size:.72rem;font-weight:700;color:var(--sub);margin-bottom:5px}
+.st-in{position:relative}
+.st-in input{width:100%;padding:12px 44px 12px 14px;font-size:1.05rem;letter-spacing:5px;border-radius:12px;border:1px solid var(--line);background:rgba(0,0,0,.22);color:var(--text);transition:border-color .2s,box-shadow .2s}
+.st-in input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+.st-in input::placeholder{letter-spacing:4px;opacity:.4}
+.st-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:34px;height:34px;border:none;background:transparent;color:var(--sub);display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:9px}
+.st-eye:hover{color:var(--accent)}
+.st-eye svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.st-msg{min-height:18px;font-size:.78rem;font-weight:700;color:var(--danger);margin:-2px 0 8px}
+.st-btn{position:relative;width:100%;padding:13px;border:none;border-radius:13px;font-weight:800;font-size:.92rem;color:#fff;cursor:pointer;background:var(--accent-grad,linear-gradient(135deg,#0ea5e9,#6366f1));box-shadow:0 8px 20px var(--accent-glow);transition:transform .15s,filter .2s}
+.st-btn:active{transform:scale(.97)}
+.st-spin{position:absolute;left:50%;top:50%;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;opacity:0;animation:pinSpin .7s linear infinite}
+.st-btn.busy{pointer-events:none;filter:saturate(.8)}
+.st-btn.busy .st-bt{opacity:0}.st-btn.busy .st-spin{opacity:1}
+@keyframes stGear{from{transform:rotate(-120deg) scale(.6);opacity:0}to{transform:none;opacity:1}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
 </head>
