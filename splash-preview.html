@@ -1,0 +1,36 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Preview</title></head><body style="margin:0;background:#030712"><h3 style="color:#fff;padding:20px">App content</h3><!-- ===== ASH SPLASH: <body> ke turant baad paste karo ===== -->
+<style>
+#ashSplash{position:fixed;inset:0;z-index:99999;background:#030712;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;transition:opacity .7s ease,transform .7s cubic-bezier(.4,0,.2,1),visibility .7s}
+#ashSplash.hide{opacity:0;visibility:hidden;transform:scale(1.12)}
+#ashSplash::before,#ashSplash::after{content:'';position:absolute;width:380px;height:380px;border-radius:50%;pointer-events:none}
+#ashSplash::before{top:10%;left:-130px;background:radial-gradient(circle,rgba(34,190,214,.26),transparent 65%);animation:ashOrb1 7s ease-in-out infinite alternate}
+#ashSplash::after{bottom:8%;right:-130px;background:radial-gradient(circle,rgba(250,225,90,.20),transparent 65%);animation:ashOrb2 7s ease-in-out infinite alternate}
+.ash-stage{position:relative;width:96px;height:96px;animation:ashFloat 3s .9s ease-in-out infinite}
+.ash-ring{position:absolute;inset:0;border-radius:24px;border:2px solid rgba(34,190,214,.6);opacity:0;animation:ashRing 2.2s .9s ease-out infinite}
+.ash-ring.r2{animation-delay:2s}
+.ash-logo{position:relative;display:block;width:96px;height:96px;border-radius:22px;object-fit:cover;filter:drop-shadow(0 10px 28px rgba(34,190,214,.45));animation:ashPop 1s cubic-bezier(.2,.9,.25,1.25) both}
+.ash-name{position:relative;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-weight:800;font-size:24px;background:linear-gradient(90deg,#E9EAEE 0%,#FAE15A 50%,#E9EAEE 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ashNameIn 1s .35s cubic-bezier(.2,.8,.2,1) both,ashShimmer 2.4s 1.4s linear infinite}
+.ash-bar{position:relative;width:130px;height:3px;border-radius:3px;background:#1D2230;overflow:hidden;animation:ashFadeUp .8s .6s both}
+.ash-bar i{display:block;height:100%;width:40%;background:linear-gradient(90deg,#22BED6,#FAE15A);border-radius:3px;animation:ashSlide 1s ease-in-out infinite}
+@keyframes ashPop{from{opacity:0;transform:scale(.4) rotate(-16deg)}to{opacity:1;transform:none}}
+@keyframes ashFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes ashRing{0%{transform:scale(1);opacity:.7}100%{transform:scale(2.2);opacity:0}}
+@keyframes ashSlide{from{transform:translateX(-110%)}to{transform:translateX(280%)}}
+@keyframes ashNameIn{from{opacity:0;letter-spacing:.4em;transform:translateY(10px)}to{opacity:1;letter-spacing:.02em;transform:none}}
+@keyframes ashShimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+@keyframes ashOrb1{to{transform:translate(130px,90px) scale(1.25)}}
+@keyframes ashOrb2{to{transform:translate(-130px,-80px) scale(1.2)}}
+@keyframes ashFadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+</style>
+<div id="ashSplash"><div class="ash-stage"><i class="ash-ring"></i><i class="ash-ring r2"></i><img class="ash-logo" src="face-attendance/icons/icon-192.png" alt="ASH" width="96" height="96"></div><div class="ash-name">ASH Attendance</div><div class="ash-bar"><i></i></div></div>
+<script>
+(function(){
+  var sp=document.getElementById('ashSplash');if(!sp)return;
+  function kill(){sp.classList.add('hide');setTimeout(function(){sp.remove()},800)}
+  function hide(){setTimeout(kill,1900)}
+  if(document.readyState==='complete')hide();else window.addEventListener('load',hide);
+  setTimeout(function(){if(sp.isConnected)kill()},5000);
+})();
+</script>
+<!-- ===== END ASH SPLASH ===== -->
+</body></html>
