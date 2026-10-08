@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>document.documentElement.classList.add("ash-locked")</script>
 <meta charset="UTF-8">
 <meta name="theme-color" content="#030712">
 <link rel="manifest" href="/manifest.json">
@@ -685,6 +686,63 @@ body.white-mode .scan-status.fail { color: #be123c !important; }
 .cf-row .cf-ok { background: linear-gradient(135deg,#f43f5e,#e11d48); border-color: transparent; color: #fff; box-shadow: 0 8px 20px rgba(244,63,94,.35); }
 @keyframes cfPulse { 0%{box-shadow:0 0 0 0 rgba(244,63,94,.35)} 100%{box-shadow:0 0 0 18px rgba(244,63,94,0)} }
 @keyframes cfShake { 0%,100%{transform:rotate(0)} 20%{transform:rotate(-14deg)} 40%{transform:rotate(12deg)} 60%{transform:rotate(-8deg)} 80%{transform:rotate(5deg)} }
+
+/* ===== DUAL PIN + RESULT POPUPS ===== */
+html.ash-locked #app{visibility:hidden}
+#appLock{position:fixed;inset:0;z-index:60000;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 20% 15%,rgba(34,190,214,.16),transparent 55%),radial-gradient(circle at 85% 90%,rgba(250,225,90,.10),transparent 55%),#030712;transition:opacity .55s ease,transform .55s cubic-bezier(.4,0,.2,1),visibility .55s}
+#appLock.hide{opacity:0;visibility:hidden;transform:scale(1.06);pointer-events:none}
+#gate{transition:opacity .25s ease}
+#gate.fade-out{opacity:0;pointer-events:none}
+#gate .gate-card,#appLock .gate-card{animation:pinCardIn .45s cubic-bezier(.2,.9,.25,1.15) both;position:relative;overflow:hidden}
+.gate-card.shake{animation:pinShake .5s cubic-bezier(.36,.07,.19,.97) both !important}
+.gate-card.st-ok{border-color:var(--ok);box-shadow:0 20px 40px rgba(0,0,0,.8),0 0 0 1px var(--ok),0 0 36px rgba(34,197,94,.30)}
+.gate-card.st-err{border-color:var(--danger);box-shadow:0 20px 40px rgba(0,0,0,.8),0 0 0 1px var(--danger),0 0 36px rgba(244,63,94,.28)}
+.gate-card.step .gate-title,.gate-card.step .gate-sub{animation:pinStep .4s ease both}
+.pin-badge{position:relative;width:60px;height:60px;margin:6px auto 12px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--accent-glow,rgba(56,189,248,.12));color:var(--accent);transition:background .3s,color .3s}
+.pin-badge::after{content:'';position:absolute;inset:0;border-radius:50%;border:2px solid currentColor;opacity:0;pointer-events:none}
+.pin-badge svg{position:absolute;width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;transition:opacity .25s,transform .35s cubic-bezier(.2,.9,.25,1.4)}
+.pin-badge .i-ok,.pin-badge .i-err{opacity:0;transform:scale(.4)}
+.pin-badge .pin-spin{position:absolute;inset:-2px;border-radius:50%;border:3px solid transparent;border-top-color:var(--accent);border-right-color:var(--accent);opacity:0;animation:pinSpin .8s linear infinite;transition:opacity .2s}
+.gate-card.st-busy .pin-spin{opacity:1}
+.gate-card.st-ok .pin-badge{background:rgba(34,197,94,.16);color:var(--ok)}
+.gate-card.st-err .pin-badge{background:rgba(244,63,94,.16);color:var(--danger)}
+.gate-card.st-ok .i-lock,.gate-card.st-err .i-lock{opacity:0;transform:scale(.4)}
+.gate-card.st-ok .i-ok,.gate-card.st-err .i-err{opacity:1;transform:none}
+.gate-card.st-ok .pin-badge::after,.gate-card.st-err .pin-badge::after{animation:pinBurst .75s ease-out}
+.gate-card.st-ok .i-ok path{stroke-dasharray:30;stroke-dashoffset:30;animation:drawTick .45s .12s ease forwards}
+.gate-title{font-size:1.12rem;font-weight:800;margin:0 0 4px;letter-spacing:-.2px}
+.pin-dots.ok i{background:var(--ok);border-color:var(--ok);box-shadow:0 0 10px var(--ok);animation:pinDotOk .5s ease both}
+.pin-dots.err i{background:var(--danger);border-color:var(--danger);box-shadow:0 0 10px var(--danger)}
+.pin-dots i.on{animation:pinDotPop .22s ease}
+.gate-msg{transition:opacity .2s}
+.keypad button.locked{opacity:.45}
+.keypad.off{opacity:.5;pointer-events:none}
+.rs-bg{position:fixed;inset:0;z-index:70000;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(2,6,23,.55);backdrop-filter:blur(6px);opacity:0;pointer-events:none;transition:opacity .25s}
+.rs-bg.show{opacity:1;pointer-events:auto}
+.rs-card{width:100%;max-width:320px;padding:28px 22px 22px;text-align:center;border-radius:22px;background:var(--panel-glass,#0f172a);border:1px solid var(--line);color:var(--text);box-shadow:0 24px 60px rgba(0,0,0,.45);transform:translateY(26px) scale(.86);opacity:0;transition:transform .4s cubic-bezier(.34,1.56,.64,1),opacity .25s}
+.rs-bg.show .rs-card{transform:none;opacity:1}
+.rs-ico{position:relative;width:68px;height:68px;margin:0 auto 14px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.rs-ico::after{content:'';position:absolute;inset:0;border-radius:50%;border:2px solid currentColor;opacity:0}
+.rs-bg.show .rs-ico::after{animation:pinBurst .9s .15s ease-out}
+.rs-card.ok .rs-ico{background:rgba(34,197,94,.14);color:var(--ok)}
+.rs-card.err .rs-ico{background:rgba(244,63,94,.14);color:var(--danger)}
+.rs-ico svg{width:32px;height:32px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.rs-bg.show .rs-ico svg path{stroke-dasharray:40;stroke-dashoffset:40;animation:drawTick .5s .2s ease forwards}
+.rs-card.err .rs-ico{animation:pinShake .5s .2s both}
+.rs-t{font-size:1.1rem;font-weight:800;margin-bottom:5px}
+.rs-m{font-size:.85rem;color:var(--sub);line-height:1.45;word-break:break-word}
+.rs-bar{height:3px;border-radius:3px;margin-top:18px;background:var(--line);overflow:hidden}
+.rs-bar i{display:block;height:100%;width:100%;transform-origin:left;background:currentColor;animation:rsBar var(--rs-ms,1900ms) linear forwards}
+.rs-card.ok .rs-bar{color:var(--ok)}.rs-card.err .rs-bar{color:var(--danger)}
+.pin-input.shake{animation:pinShake .45s both;border-color:var(--danger)}
+@keyframes pinCardIn{from{opacity:0;transform:translateY(22px) scale(.92)}to{opacity:1;transform:none}}
+@keyframes pinShake{10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(5px)}30%,50%,70%{transform:translateX(-9px)}40%,60%{transform:translateX(9px)}100%{transform:none}}
+@keyframes pinBurst{0%{transform:scale(1);opacity:.7}100%{transform:scale(2.1);opacity:0}}
+@keyframes pinSpin{to{transform:rotate(360deg)}}
+@keyframes pinStep{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}
+@keyframes pinDotPop{0%{transform:scale(.5)}60%{transform:scale(1.35)}100%{transform:scale(1.1)}}
+@keyframes pinDotOk{0%{transform:scale(1)}50%{transform:scale(1.5)}100%{transform:scale(1.1)}}
+@keyframes rsBar{to{transform:scaleX(0)}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
 </head>
@@ -726,6 +784,9 @@ body.white-mode .scan-status.fail { color: #be123c !important; }
 </script>
 <!-- ===== END ASH SPLASH ===== -->
 
+
+<!-- APP LOCK (App PIN) -->
+<div id="appLock"><div class="gate-card" id="appLockCard"></div></div>
 
 <!-- LOGIN GATE -->
 <div id="gate">

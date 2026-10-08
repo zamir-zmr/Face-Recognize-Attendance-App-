@@ -341,5 +341,30 @@
     "capturedOne": "Face captured ✓ ({count} sample)",
     "capturedMany": "Face captured ✓ ({count} samples)",
     "serverSlow": "Server slow - please tap Capture again"
+  },
+  "pin": {
+    "appTitle": "Welcome Back",
+    "appSub": "Enter your App PIN to continue",
+    "appCreateTitle": "Create App PIN",
+    "appCreateSub": "Choose a 4-digit PIN to lock this app",
+    "dashTitle": "Admin Access",
+    "dashSub": "Enter Dashboard PIN to open {page}",
+    "dashCreateTitle": "Create Dashboard PIN",
+    "dashCreateSub": "Choose a 4-digit PIN to protect Dashboard, Employees and Reports",
+    "confirmTitle": "Confirm PIN",
+    "confirmSub": "Enter the same PIN once more",
+    "connecting": "Connecting securely...",
+    "saving": "Saving PIN...",
+    "wrong": "Incorrect PIN",
+    "fourDigits": "Enter all 4 digits",
+    "mismatch": "PINs do not match - try again",
+    "locked": "Too many attempts. Try again in {s}s",
+    "unlocked": "Unlocked",
+    "created": "PIN created",
+    "savedOffline": "PIN saved on this device. It will sync when you are online.",
+    "offlineNote": "Offline mode - using PIN saved on this device",
+    "deletedTitle": "Deleted",
+    "failedTitle": "Action failed",
+    "okTitle": "Done"
   }
 }
