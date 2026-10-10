@@ -250,6 +250,17 @@ const PIN_PATH = 'Ash_Attendance_Pin';
 const PIN_KEYS = { app: 'AppAccess_PIN', dash: 'DashboardAccess_PIN' };
 const PIN_LS = { app: 'ash_pin_app', dash: 'ash_pin_dash' };
 const LS_PIN_PEND = 'ash_pin_pending';
+/* One-time purge: PIN copies (and cached snapshot) saved from the previous Firebase project are removed, so old
+   AppAccess_PIN / DashboardAccess_PIN values never get pushed into the new project. Runs once per projectId. */
+(function(){
+  try{
+    const MARK = 'ash_fb_project', cur = FB_CONFIG.projectId;
+    if(localStorage.getItem(MARK) !== cur){
+      [PIN_LS.app, PIN_LS.dash, LS_PIN_PEND, LS_PIN, CACHE_KEY].forEach(k => localStorage.removeItem(k));
+      localStorage.setItem(MARK, cur);
+    }
+  }catch(e){}
+})();
 const PinStore = (() => {
   const rd = k => { try{ return localStorage.getItem(k) || ''; }catch(e){ return ''; } };
   const wr = (k, v) => { try{ localStorage.setItem(k, v); }catch(e){} };
