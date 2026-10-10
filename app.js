@@ -255,67 +255,78 @@ const PinStore = (() => {
   const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
   const getPend = () => { try{ return JSON.parse(rd(LS_PIN_PEND) || '{}') || {}; }catch(e){ return {}; } };
   const setPend = o => wr(LS_PIN_PEND, JSON.stringify(o));
-  const st = { app: valid(rd(PIN_LS.app)) ? rd(PIN_LS.app) : '', dash: valid(rd(PIN_LS.dash)) ? rd(PIN_LS.dash) : '', online: null, loaded: false };
-  const legacy = rd(LS_PIN);                         /* old local-only admin PIN -> keep it, push to Firebase */
-  if(!st.dash && valid(legacy)){ st.dash = legacy; wr(PIN_LS.dash, legacy); const p = getPend(); p.dash = true; setPend(p); }
-  let loading = null;
-  function flush(){                                  /* push PINs created offline - never overwrites a PIN that already exists online */
+  const clearPend = w => { const p = getPend(); delete p[w]; setPend(p); };
+  /* local = PIN this device was verified/created with.  remote = what Firebase holds right now (the master copy). */
+  const st = { local: { app: '', dash: '' }, remote: { app: '', dash: '' }, loaded: false, online: null, connected: false, sessionOpen: false };
+  ['app', 'dash'].forEach(w => { const v = rd(PIN_LS[w]); st.local[w] = valid(v) ? v : ''; });
+  const legacy = rd(LS_PIN);                         /* old local-only admin PIN -> keep it, push to Firebase once */
+  if(!st.local.dash && valid(legacy)){ st.local.dash = legacy; wr(PIN_LS.dash, legacy); const p = getPend(); p.dash = 'mig'; setPend(p); }
+  /* PIN that must be matched: a pending local change wins, otherwise Firebase (once read), otherwise the device copy (offline) */
+  const eff = w => { if(getPend()[w] && st.local[w]) return st.local[w]; return st.loaded ? st.remote[w] : st.local[w]; };
+  function applyRemote(v){
+    const pend = getPend();
+    ['app', 'dash'].forEach(w => {
+      const rem = valid(v[PIN_KEYS[w]]) ? String(v[PIN_KEYS[w]]) : '';
+      st.remote[w] = rem;
+      if(pend[w] && rem && (rem === st.local[w] || pend[w] === 'mig')) delete pend[w];
+    });
+    setPend(pend); st.loaded = true;
+  }
+  function flush(){                                  /* push PINs that could not be saved earlier */
     const pend = getPend();
     Object.keys(pend).forEach(w => {
-      if(!st[w]) return;
+      if(!st.local[w]) return;
       try{
-        fdb.ref(PIN_PATH + '/' + PIN_KEYS[w]).transaction(cur => cur === null ? st[w] : undefined).then(r => {
-          const p = getPend(); delete p[w]; setPend(p);
-          if(!r.committed) load(true);
-        }).catch(() => {});
+        const ref = fdb.ref(PIN_PATH + '/' + PIN_KEYS[w]);
+        if(pend[w] === 'set') ref.set(st.local[w]).then(() => { clearPend(w); st.remote[w] = st.local[w]; }).catch(() => {});
+        else ref.transaction(cur => cur === null ? st.local[w] : undefined).then(r => { clearPend(w); if(r.committed) st.remote[w] = st.local[w]; else load(true); }).catch(() => {});
       }catch(e){}
     });
   }
+  let loading = null;
   function load(force, ms){
     if(loading && !force) return loading;
     loading = withTimeout(fdb.ref(PIN_PATH).once('value'), ms || 7000).then(snap => {
-      const v = snap.val() || {}, pend = getPend();
-      ['app', 'dash'].forEach(w => {
-        const rem = v[PIN_KEYS[w]];
-        if(valid(rem)){ st[w] = String(rem); wr(PIN_LS[w], st[w]); delete pend[w]; }
-        else if(st[w]){ pend[w] = true; }
-      });
-      setPend(pend); st.loaded = true; st.online = true; flush();
+      applyRemote(snap.val() || {}); st.online = true; flush();
       return { ok: true };
     }).catch(err => { st.online = false; return { ok: false, error: err }; })
       .then(r => { loading = null; return r; });
     return loading;
   }
   async function save(w, pin){
-    st[w] = pin; wr(PIN_LS[w], pin);
+    st.local[w] = pin; wr(PIN_LS[w], pin);
+    const p = getPend(); p[w] = 'set'; setPend(p);
     try{
       await withTimeout(fdb.ref(PIN_PATH + '/' + PIN_KEYS[w]).set(pin), 7000);
-      const p = getPend(); delete p[w]; setPend(p); st.online = true;
+      clearPend(w); st.remote[w] = pin; st.online = true;
       return { synced: true };
     }catch(err){
-      const p = getPend(); p[w] = true; setPend(p); st.online = false;
+      st.online = false;                             /* stays pending - Firebase SDK also queues the write */
       return { synced: false, error: err };
     }
   }
-  async function check(w, pin){
-    if(st[w] && pin === st[w]) return true;
-    await load(true, 3500);                          /* PIN may have been changed on another device */
-    return !!st[w] && pin === st[w];
+  async function check(w, pin){                      /* Firebase is the master: typed PIN must match what Firebase holds */
+    if(!(st.connected && st.loaded)) await load(true, 3500);
+    const cur = eff(w);
+    if(cur && pin === cur){ st.local[w] = pin; wr(PIN_LS[w], pin); return true; }
+    return false;
   }
   async function change(w, cur, pin){
-    if(st[w] && !(await check(w, cur))) return { ok: false, reason: 'wrong' };
+    if(eff(w) && !(await check(w, cur))) return { ok: false, reason: 'wrong' };
     const r = await save(w, pin);
     return { ok: true, synced: r.synced };
   }
-  try{                                              /* live sync: a PIN changed on any device reaches this one at once */
+  try{                                              /* live: if the App PIN is changed in Firebase while the app is open, lock again */
     fdb.ref(PIN_PATH).on('value', snap => {
-      const v = snap.val() || {}, pend = getPend();
-      ['app', 'dash'].forEach(w => { const rem = v[PIN_KEYS[w]]; if(valid(rem) && !pend[w]){ st[w] = String(rem); wr(PIN_LS[w], st[w]); } });
-      st.online = true;
+      applyRemote(snap.val() || {}); st.online = true;
+      if(st.sessionOpen && st.remote.app && st.remote.app !== st.local.app && !getPend().app) window.dispatchEvent(new Event('ash-relock'));
     }, () => {});
+    fdb.ref('.info/connected').on('value', s => { st.connected = !!s.val(); if(st.connected){ st.online = true; flush(); } else if(st.online) st.online = false; }, () => {});
   }catch(e){}
   window.addEventListener('online', () => { load(true); });
-  return { get: w => st[w], has: w => !!st[w], isOnline: () => st.online, load, save, check, change };
+  return { get: eff, has: w => !!eff(w), local: w => st.local[w], remote: w => st.remote[w], pending: w => !!getPend()[w],
+    loaded: () => st.loaded, connected: () => st.connected, isOnline: () => st.connected || st.online,
+    setSessionOpen: v => { st.sessionOpen = !!v; }, load, save, check, change };
 })();
 
 const PAD_KEYS = ['1','2','3','4','5','6','7','8','9','⌫','0','OK'];
@@ -452,24 +463,56 @@ const appLockEl = document.getElementById('appLock');
 const appLockCard = document.getElementById('appLockCard');
 buildPadCard(appLockCard, true);
 const appPad = new PinPad(appLockCard);
-function endAppLock(instant){
+function endAppLock(){
   const root = document.documentElement;
-  if(instant){ root.classList.remove('ash-locked'); appLockEl.style.display = 'none'; return; }
   root.classList.add('ash-lock-fade'); root.classList.remove('ash-locked'); appLockEl.classList.add('hide');
-  setTimeout(() => { appLockEl.style.display = 'none'; root.classList.remove('ash-lock-fade'); }, 700);
+  setTimeout(() => { if(appLockEl.classList.contains('hide')) appLockEl.style.display = 'none'; root.classList.remove('ash-lock-fade'); }, 700);
 }
 appPad.keyboard(() => !appLockEl.classList.contains('hide') && appLockEl.style.display !== 'none' && document.documentElement.classList.contains('ash-locked'));
-(async function runAppLock(){                          /* Welcome screen = ONE-TIME registration. Once an App PIN exists it never shows again. */
+function offlineBlock(){                               /* no connection AND nothing saved on this device -> cannot verify, do not open */
+  return new Promise(res => {
+    appPad.reset(); appPad.state('err'); appPad.kp.classList.add('off'); appPad.busy = true;
+    appPad.texts(T('pin.noConnTitle'), T('pin.noConnSub'));
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'pin-retry'; btn.textContent = T('pin.retry');
+    appLockCard.appendChild(btn);
+    btn.addEventListener('click', () => { btn.remove(); appPad.reset(); res(); });
+  });
+}
+let appLockRunning = false;
+async function runAppLock(){
+  /* Firebase holds the master App PIN.  Same PIN on this device -> opens silently.
+     PIN changed in Firebase / app data reset / new device -> the Firebase PIN must be typed.  No PIN anywhere -> one-time registration. */
+  if(appLockRunning) return; appLockRunning = true;
   try{
-    if(PinStore.has('app')){ PinStore.load(); endAppLock(true); return; }
-    appPad.texts(T('pin.appCreateTitle'), T('pin.connecting'));
-    appPad.loading(T('pin.connecting')); await PinStore.load(); appPad.ready();
-    if(PinStore.has('app')){ endAppLock(false); return; }         /* already registered (another device / earlier) */
-    const r = await runPinFlow(appPad, 'app', { title: '', sub: '', createTitle: T('pin.appCreateTitle'), createSub: T('pin.appCreateSub') });
-    endAppLock(false);
-    if(r.created && !r.synced) setTimeout(() => toast(T('pin.savedOffline'), 'info'), 700);
-  }catch(e){ endAppLock(false); }
-})();
+    for(;;){
+      appPad.reset(); appPad.texts(T('pin.appTitle'), T('pin.verifying')); appPad.loading(T('pin.verifying'));
+      const r = await PinStore.load(true, 5000);
+      appPad.ready();
+      const remote = PinStore.remote('app'), local = PinStore.local('app');
+      if(r.ok){
+        if(remote && remote === local){ break; }                                   /* matches Firebase -> open */
+        if(!remote && local && PinStore.pending('app')){ break; }                  /* PIN saved offline earlier, now being pushed */
+        const res = await runPinFlow(appPad, 'app', { title: T('pin.appTitle'), sub: T('pin.appLockedSub'),
+          createTitle: T('pin.appCreateTitle'), createSub: T('pin.appCreateSub') });
+        if(res.created && !res.synced) setTimeout(() => toast(T('pin.savedOffline'), 'info'), 900);
+        break;
+      }
+      if(local){ break; }                                                          /* offline: PIN saved on this device is used */
+      await offlineBlock();
+    }
+  }catch(e){ /* never leave the user stuck behind a broken lock */ }
+  appLockRunning = false;
+  PinStore.setSessionOpen(true);
+  endAppLock();
+}
+window.addEventListener('ash-relock', () => {          /* Firebase App PIN changed while the app is open */
+  if(appLockRunning) return;
+  PinStore.setSessionOpen(false);
+  const root = document.documentElement;
+  root.classList.add('ash-locked'); appLockEl.style.display = ''; appLockEl.classList.remove('hide');
+  runAppLock();
+});
+runAppLock();
 
 /* ----- DASHBOARD / ADMIN GATE (Dashboard, Employees, Reports) - unlocked once per app session ----- */
 const gateEl = document.getElementById('gate');
@@ -498,8 +541,7 @@ async function openGate(targetPage){
   gatePad.reset();
   gateEl.classList.remove('fade-out'); gateEl.style.display = 'flex';
   gatePad.texts(T('pin.dashTitle'), T('pin.dashSub', { page: T(targetPage === 'settings' ? 'pin.settingsName' : 'nav.' + targetPage).toUpperCase() }));
-  if(!PinStore.get('dash')){ gatePad.loading(T('pin.connecting')); await PinStore.load(); gatePad.ready(); }
-  else PinStore.load();
+  if(!(PinStore.connected() && PinStore.loaded())){ gatePad.loading(T('pin.connecting')); await PinStore.load(true, 3500); gatePad.ready(); }
   if(run !== gateRun || !gateVisible()) return;
   const r = await runPinFlow(gatePad, 'dash', {
     title: T('pin.dashTitle'), sub: T('pin.dashSub', { page: T(targetPage === 'settings' ? 'pin.settingsName' : 'nav.' + targetPage).toUpperCase() }),

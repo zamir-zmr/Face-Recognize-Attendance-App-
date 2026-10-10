@@ -343,7 +343,7 @@
     "serverSlow": "Server slow - please tap Capture again"
   },
   "pin": {
-    "appTitle": "Welcome Back",
+    "appTitle": "App Locked",
     "appSub": "Enter your App PIN to continue",
     "appCreateTitle": "Create App PIN",
     "appCreateSub": "Welcome! One-time setup - choose a PIN (4 to 12 digits)",
@@ -386,6 +386,11 @@
     "updatedSynced": "Saved to Firebase and this device",
     "updatedLocal": "Saved on this device. Will sync when online.",
     "chipSynced": "Synced",
-    "chipDevice": "This device"
+    "chipDevice": "This device",
+    "appLockedSub": "Enter your App PIN to continue",
+    "verifying": "Verifying securely...",
+    "noConnTitle": "No connection",
+    "noConnSub": "Connect to the internet to verify your App PIN",
+    "retry": "Try again"
   }
 }

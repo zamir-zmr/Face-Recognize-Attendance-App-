@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>try{if(!localStorage.getItem("ash_pin_app"))document.documentElement.classList.add("ash-locked")}catch(e){document.documentElement.classList.add("ash-locked")}</script>
+<script>document.documentElement.classList.add("ash-locked")</script>
 <meta charset="UTF-8">
 <meta name="theme-color" content="#030712">
 <link rel="manifest" href="/manifest.json">
@@ -744,6 +744,8 @@ html.ash-locked #app{visibility:hidden}
 @keyframes pinDotOk{0%{transform:scale(1)}50%{transform:scale(1.5)}100%{transform:scale(1.1)}}
 @keyframes rsBar{to{transform:scaleX(0)}}
 
+.pin-retry{display:block;width:100%;margin-top:14px;padding:12px;border:none;border-radius:13px;font-weight:800;font-size:.9rem;color:#fff;cursor:pointer;background:var(--accent-grad);box-shadow:0 8px 20px var(--accent-glow);animation:pinStep .4s ease both;transition:transform .15s}
+.pin-retry:active{transform:scale(.97)}
 /* ===== SETTINGS ===== */
 html:not(.ash-locked):not(.ash-lock-fade) #appLock{display:none}
 #settingsBtn{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);right:12px;z-index:900;width:42px;height:42px;border-radius:13px;border:1px solid var(--line);background:var(--panel2);color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.35);transition:transform .25s cubic-bezier(.34,1.56,.64,1),border-color .2s,color .2s}
