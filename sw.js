@@ -13,7 +13,7 @@ firebase.initializeApp({
 });
 const messaging = firebase.messaging();
 
-const VERSION = 'v4';
+const VERSION = 'v5';
 const SHELL = `shell-${VERSION}`, RUNTIME = `runtime-${VERSION}`;
 const APP_SHELL = ['/', '/app.js', '/bridge.js', '/i18n.js', '/text.json', '/manifest.json',
                    '/icon-192.png', '/icon-512.png', '/finger1.png', '/finger2.png', '/finger3.png', '/finger4.png'];
@@ -37,6 +37,11 @@ self.addEventListener('fetch', e => {
   if (req.mode === 'navigate') {                                                  // pages: network first, offline fallback
     e.respondWith(fetch(req).then(r => { const c = r.clone(); caches.open(SHELL).then(x => x.put('/', c)); return r; })
       .catch(() => caches.match('/')));
+    return;
+  }
+  if (url.origin === location.origin && /\.(js|json|html)$/.test(url.pathname)) {   // app code: network first, so updates apply at once
+    e.respondWith(fetch(req, { cache: 'no-store' }).then(r => { if (r && r.ok) { const c = r.clone(); caches.open(RUNTIME).then(x => x.put(req, c)); } return r; })
+      .catch(() => caches.match(req)));
     return;
   }
   if (url.origin === location.origin || /gstatic\.com|jsdelivr\.net|cdnjs\.cloudflare\.com/.test(url.host)) {

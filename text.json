@@ -391,6 +391,8 @@
     "verifying": "Verifying securely...",
     "noConnTitle": "No connection",
     "noConnSub": "Connect to the internet to verify your App PIN",
-    "retry": "Try again"
+    "retry": "Try again",
+    "errTitle": "Could not verify",
+    "errSub": "Something went wrong while checking your App PIN. Try again."
   }
 }
