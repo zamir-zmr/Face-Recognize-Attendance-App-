@@ -1,3 +1,4 @@
+window.ASH_BUILD = 6;
 const LS_EMP = 'minmoe_employees';
 const LS_LOG = 'minmoe_logs';
 const LS_PIN = 'minmoe_admin_pin';
@@ -462,10 +463,14 @@ function runPinFlow(pad, which, texts){
 const appLockEl = document.getElementById('appLock');
 const appLockCard = document.getElementById('appLockCard');
 buildPadCard(appLockCard, true);
-appLockCard.insertAdjacentHTML('beforeend', '<div class="pin-build">Security build 5</div>');
+appLockCard.insertAdjacentHTML('beforeend', '<div class="pin-build">Security build 6</div>');
 const appPad = new PinPad(appLockCard);
+const appRootEl = document.getElementById('app');
+function setAppInert(v){ try{ if(appRootEl){ appRootEl.inert = !!v; if(v) appRootEl.setAttribute('aria-hidden', 'true'); else appRootEl.removeAttribute('aria-hidden'); } }catch(e){} }
+setAppInert(true);                                     /* nothing in the app can be tapped/focused until the PIN is verified */
 function endAppLock(){
   const root = document.documentElement;
+  window.__ashUnlockOK = true; setAppInert(false);       /* the ONLY place the lock is released */
   root.classList.add('ash-lock-fade'); root.classList.remove('ash-locked'); appLockEl.classList.add('hide');
   setTimeout(() => { if(appLockEl.classList.contains('hide')) appLockEl.style.display = 'none'; root.classList.remove('ash-lock-fade'); }, 700);
 }
@@ -476,31 +481,32 @@ function offlineBlock(title, sub){                               /* no connectio
     appPad.texts(title || T('pin.noConnTitle'), sub || T('pin.noConnSub'));
     const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'pin-retry'; btn.textContent = T('pin.retry');
     appLockCard.appendChild(btn);
-    btn.addEventListener('click', () => { btn.remove(); appPad.reset(); res(); });
+    const go = () => { window.removeEventListener('online', go); if(btn.isConnected){ btn.remove(); appPad.reset(); res(); } };
+    btn.addEventListener('click', go); window.addEventListener('online', go);
   });
 }
 let appLockRunning = false;
 async function runAppLock(){
-  /* Firebase holds the master App PIN.  Same PIN on this device -> opens silently.
-     PIN changed in Firebase / app data reset / new device -> the Firebase PIN must be typed.  No PIN anywhere -> one-time registration.
-     Fail-closed: any error keeps the lock screen up (with Try again) - the app never opens by accident. */
+  /* STRICT: the app opens only when the PIN on this device is exactly the PIN stored in Firebase.
+     - same PIN  -> opens
+     - PIN changed in Firebase / app data reset / new device -> Firebase PIN must be typed
+     - nothing in Firebase yet -> one-time registration (saved to Firebase)
+     - no connection / any error -> lock stays, "Try again" (NO offline bypass) */
   if(appLockRunning) return; appLockRunning = true;
   for(;;){
     try{
       appPad.reset(); appPad.texts(T('pin.appTitle'), T('pin.verifying')); appPad.loading(T('pin.verifying'));
-      const r = await PinStore.load(true, 5000);
+      const r = await PinStore.load(true, 9000);
       appPad.ready();
-      const remote = PinStore.remote('app'), local = PinStore.local('app');
-      if(r.ok){
-        if(remote && remote === local) break;                                      /* matches Firebase -> open */
-        if(!remote && local && PinStore.pending('app')) break;                     /* PIN saved offline earlier, now being pushed */
-        const res = await runPinFlow(appPad, 'app', { title: T('pin.appTitle'), sub: T('pin.appLockedSub'),
+      if(!r.ok){ await offlineBlock(); continue; }
+      let remote = PinStore.remote('app');
+      if(!(remote && remote === PinStore.local('app'))){
+        await runPinFlow(appPad, 'app', { title: T('pin.appTitle'), sub: T('pin.appLockedSub'),
           createTitle: T('pin.appCreateTitle'), createSub: T('pin.appCreateSub') });
-        if(res.created && !res.synced) setTimeout(() => toast(T('pin.savedOffline'), 'info'), 900);
-        break;
+        remote = PinStore.remote('app');
       }
-      if(local) break;                                                             /* offline: PIN saved on this device is used */
-      await offlineBlock();
+      if(remote && remote === PinStore.local('app')) break;                        /* final strict check: device PIN == Firebase PIN */
+      await offlineBlock(T('pin.errTitle'), T('pin.errSub'));                      /* e.g. registration could not reach Firebase */
     }catch(e){
       await offlineBlock(T('pin.errTitle'), T('pin.errSub'));
     }
@@ -519,6 +525,7 @@ window.addEventListener('ash-relock', () => {          /* Firebase App PIN chang
   if(appLockRunning) return;
   PinStore.setSessionOpen(false);
   const root = document.documentElement;
+  window.__ashUnlockOK = false; setAppInert(true);
   root.classList.add('ash-locked'); appLockEl.style.display = ''; appLockEl.classList.remove('hide');
   runAppLock();
 });

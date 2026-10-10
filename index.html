@@ -1,7 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script>document.documentElement.classList.add("ash-locked")</script>
+<script>
+/* APP LOCK GUARD: the app UI stays covered until app.js verifies the PIN and sets __ashUnlockOK. Nothing else can lift the lock. */
+(function(){
+  var h=document.documentElement; window.ASH_REQUIRED_BUILD=6; window.__ashUnlockOK=false;
+  h.classList.add("ash-locked");
+  try{ new MutationObserver(function(){ if(!window.__ashUnlockOK && !h.classList.contains("ash-locked")) h.classList.add("ash-locked"); }).observe(h,{attributes:true,attributeFilter:["class"]}); }catch(e){}
+  setTimeout(function(){                       /* old cached app.js still running -> clear caches once and reload the new one */
+    if(window.ASH_BUILD===window.ASH_REQUIRED_BUILD) return;
+    try{ if(sessionStorage.getItem("ash_healed")==="1") return; sessionStorage.setItem("ash_healed","1"); }catch(e){}
+    var jobs=[];
+    if(navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function(rs){return Promise.all(rs.map(function(r){return r.unregister()}))}));
+    if(window.caches) jobs.push(caches.keys().then(function(ks){return Promise.all(ks.map(function(k){return caches.delete(k)}))}));
+    Promise.all(jobs).catch(function(){}).then(function(){ location.reload(); });
+  },4500);
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="theme-color" content="#030712">
 <link rel="manifest" href="/manifest.json">
@@ -689,6 +704,7 @@ body.white-mode .scan-status.fail { color: #be123c !important; }
 
 /* ===== DUAL PIN + RESULT POPUPS ===== */
 html.ash-locked #app{visibility:hidden}
+html.ash-locked::before{content:'';position:fixed;inset:0;background:#030712;z-index:59000}
 #appLock{position:fixed;inset:0;z-index:60000;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 20% 15%,rgba(34,190,214,.16),transparent 55%),radial-gradient(circle at 85% 90%,rgba(250,225,90,.10),transparent 55%),#030712;transition:opacity .55s ease,transform .55s cubic-bezier(.4,0,.2,1),visibility .55s}
 #appLock.hide{opacity:0;visibility:hidden;transform:scale(1.06);pointer-events:none}
 #gate{transition:opacity .25s ease}

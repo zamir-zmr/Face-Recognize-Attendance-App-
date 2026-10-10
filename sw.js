@@ -13,13 +13,13 @@ firebase.initializeApp({
 });
 const messaging = firebase.messaging();
 
-const VERSION = 'v5';
+const VERSION = 'v6';
 const SHELL = `shell-${VERSION}`, RUNTIME = `runtime-${VERSION}`;
 const APP_SHELL = ['/', '/app.js', '/bridge.js', '/i18n.js', '/text.json', '/manifest.json',
                    '/icon-192.png', '/icon-512.png', '/finger1.png', '/finger2.png', '/finger3.png', '/finger4.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(SHELL).then(c => Promise.allSettled(APP_SHELL.map(u => c.add(u)))).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(SHELL).then(c => Promise.allSettled(APP_SHELL.map(u => c.add(new Request(u, { cache: 'reload' }))))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
