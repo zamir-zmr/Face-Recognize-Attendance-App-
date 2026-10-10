@@ -3,17 +3,18 @@ importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js
 importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
 
 firebase.initializeApp({
-  apiKey: "AIzaSyA0rirztMO13FyXcKYz1aEB1ERYH-HQUbA",
-  authDomain: "sweethouse-e3e49.firebaseapp.com",
-  databaseURL: "https://sweethouse-e3e49-default-rtdb.firebaseio.com",
-  projectId: "sweethouse-e3e49",
-  storageBucket: "sweethouse-e3e49.firebasestorage.app",
-  messagingSenderId: "579322038108",
-  appId: "1:579322038108:web:166b7fdb103080f56d6399"
+  apiKey: "AIzaSyCfk9xXNIQiV1kgtpctiSkimPACOsi1_wE",
+  authDomain: "face-recognize-app-87da5.firebaseapp.com",
+  databaseURL: "https://face-recognize-app-87da5-default-rtdb.firebaseio.com",
+  projectId: "face-recognize-app-87da5",
+  storageBucket: "face-recognize-app-87da5.firebasestorage.app",
+  messagingSenderId: "921427546272",
+  appId: "1:921427546272:web:e70d18574a5cd0703ef9c5",
+  measurementId: "G-VNSJW0VZH5"
 });
 const messaging = firebase.messaging();
 
-const VERSION = 'v6';
+const VERSION = 'v7';
 const SHELL = `shell-${VERSION}`, RUNTIME = `runtime-${VERSION}`;
 const APP_SHELL = ['/', '/app.js', '/bridge.js', '/i18n.js', '/text.json', '/manifest.json',
                    '/icon-192.png', '/icon-512.png', '/finger1.png', '/finger2.png', '/finger3.png', '/finger4.png'];
